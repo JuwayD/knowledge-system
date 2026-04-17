@@ -139,6 +139,7 @@ source_digest: digest-xxx
 3. 用户要复习、回忆、巩固、查看今日到期复习、"今天该复习什么"：读取 `review.md`
 4. 用户在整理今天学到的内容、消化已有知识、沉淀笔记：读取 `digest.md`
 5. 用户要记录 idea、todo、闪念、提醒事项：读取 `memo.md`
+6. 用户问"今天该做什么"、"有什么待办"、"帮我安排今天"：读取 `schedule.md`
 
 ## 分支文档
 
@@ -147,6 +148,7 @@ source_digest: digest-xxx
 - 复习巩固：`review.md`
 - 知识消化：`digest.md`
 - 备忘体系：`memo.md`
+- 每日待办：`schedule.md`
 
 ## 飞书集成
 
@@ -234,6 +236,10 @@ python ./kb.py tree-children --parent "JavaScript"
 python ./kb.py tree-summary
 python ./kb.py tree-check
 python ./kb.py tree-check --threshold 5
+
+# 每日待办聚合
+python ./kb.py agenda
+python ./kb.py agenda --days 7
 ```
 
 ## 工作原则

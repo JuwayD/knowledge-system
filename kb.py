@@ -61,6 +61,7 @@ Commands:
   tree-children --parent <topic>
   tree-summary
   tree-check [--threshold <n>]
+  agenda [--days <n>]
 """
 
 
@@ -1147,6 +1148,90 @@ def cmd_tree_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agenda(args: argparse.Namespace) -> int:
+    ensure_data_dirs()
+    now = datetime.now()
+    days_ahead = args.days
+    try:
+        cutoff = now + __import__("datetime").timedelta(days=days_ahead)
+    except Exception:
+        cutoff = now
+
+    reviews = []
+    for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        data = read_record(path)
+        learned_at = data.get("learned_at", "")
+        review_count = data.get("review_count", 0)
+        if review_count >= len(REVIEW_INTERVALS):
+            continue
+        try:
+            next_date = datetime.fromisoformat(next_review_date(learned_at, review_count))
+        except (ValueError, TypeError):
+            continue
+        if next_date <= cutoff:
+            reviews.append({
+                "id": data.get("id"),
+                "topic": data.get("topic"),
+                "overdue_days": max(0, (now - next_date).days),
+                "review_count": review_count,
+            })
+    reviews.sort(key=lambda x: x["overdue_days"], reverse=True)
+
+    memos = []
+    for path in sorted(MEMOS_DIR.glob("*.md")):
+        data = read_record(path)
+        if data.get("status") != "open":
+            continue
+        memo_info = {
+            "id": data.get("id"),
+            "type": data.get("type"),
+            "title": data.get("title"),
+            "priority": data.get("priority", "medium"),
+        }
+        deadline = data.get("deadline", "")
+        if deadline:
+            try:
+                dl = datetime.fromisoformat(deadline)
+                memo_info["deadline"] = deadline
+                memo_info["overdue_days"] = max(0, (now.date() - dl.date()).days)
+            except (ValueError, TypeError):
+                pass
+        memos.append(memo_info)
+    memos.sort(key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x.get("priority", "medium"), 1))
+
+    plans = []
+    for path in sorted(PLANS_DIR.glob("*.md")):
+        data = read_record(path)
+        if data.get("status") != "active":
+            continue
+        units = data.get("units", [])
+        if isinstance(units, str):
+            try:
+                units = json.loads(units)
+            except (json.JSONDecodeError, TypeError):
+                units = []
+        pending_units = [u for u in units if u.get("status") != "mastered"] if isinstance(units, list) else []
+        plans.append({
+            "id": data.get("id"),
+            "topic": data.get("topic"),
+            "resume_from": data.get("resume_from", ""),
+            "pending_units": len(pending_units),
+            "total_units": len(units) if isinstance(units, list) else 0,
+        })
+
+    agenda = {
+        "date": now.isoformat(timespec="seconds"),
+        "reviews_due": reviews,
+        "reviews_count": len(reviews),
+        "memos_open": memos,
+        "memos_count": len(memos),
+        "plans_active": plans,
+        "plans_count": len(plans),
+    }
+    print_json(agenda)
+    return 0
+
+
 def cmd_tree_summary(args: argparse.Namespace) -> int:
     ensure_data_dirs()
     entries = {}
@@ -1565,6 +1650,10 @@ def build_parser() -> argparse.ArgumentParser:
     tree_check_parser = subparsers.add_parser("tree-check")
     tree_check_parser.add_argument("--threshold", type=int, default=8)
     tree_check_parser.set_defaults(func=cmd_tree_check)
+
+    agenda_parser = subparsers.add_parser("agenda")
+    agenda_parser.add_argument("--days", type=int, default=3)
+    agenda_parser.set_defaults(func=cmd_agenda)
 
     return parser
 
