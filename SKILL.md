@@ -150,29 +150,27 @@ source_digest: digest-xxx
 
 ## 飞书集成
 
-通过 `feishu.py` 将知识库同步到飞书 Wiki，实现可视化阅读。
+通过 `feishu.py`（底层调用 [lark-cli](https://github.com/larksuite/cli)）将知识库同步到飞书 Wiki，原生支持 Markdown。
 
 ### 前置准备
 
-1. 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用
-2. 添加「机器人」能力
-3. 在「权限管理」中开通以下权限：
-   - `wiki:wiki` — 查看、编辑和管理知识库
-   - `wiki:node:create` — 创建知识库节点
-   - `docx:document` — 读写文档
-4. 创建版本并发布，等待管理员审批通过
-5. 将应用添加为目标知识库的管理员
+1. 安装 lark-cli：`npm install -g @larksuite/cli`
+2. 配置应用：`lark-cli config init --app-id "cli_xxx" --app-secret-stdin --brand feishu`
+3. 登录授权：`lark-cli auth login --recommend`（浏览器完成 OAuth）
+4. 验证：`lark-cli auth status`
 
-### 配置认证
+### 配置与同步
 
 ```bash
-python ./feishu.py auth --app-id "cli_xxx" --app-secret "xxx" --space-id "xxx"
+# 查看可用知识库
+python ./feishu.py spaces
+
+# 设置目标知识库
+python ./feishu.py config --space-id "xxx"
+
+# 查看状态
 python ./feishu.py status
-```
 
-### 同步知识库
-
-```bash
 # 同步整棵知识树（先根节点后子节点）
 python ./feishu.py sync-tree
 

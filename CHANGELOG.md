@@ -1,5 +1,30 @@
 # 变更记录
 
+## v7.1.0 — 2026-04-18
+
+### 飞书集成：基于 lark-cli 重写 + 端到端验证通过
+
+#### 核心变更
+
+**`feishu.py` 完全重写，底层从手动调飞书 REST API 改为委托 lark-cli**
+
+- 移除 `requests` 依赖和手写的 Markdown→飞书文档块转换（约 200 行）
+- 改用 `lark-cli docs +create --markdown` 和 `lark-cli wiki +node-create` 子进程调用
+- 子节点创建：先 `wiki +node-create` 建节点，再 `docs +update --mode overwrite` 写内容
+- 新增 `spaces` 命令：列出可用知识库
+- 新增 `config --space-id` 命令：设置目标知识库
+- 认证完全交给 lark-cli 管理（`lark-cli config init` + `lark-cli auth login`）
+- 端到端验证通过：根节点 + 子节点均成功创建并写入 Markdown 内容
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `feishu.py` | 全面重写：移除 requests/API 手动调用，改为 lark-cli 子进程调用 |
+| `SKILL.md` | 飞书集成章节更新为 lark-cli 方案 |
+
+---
+
 ## v7.0.0 — 2026-04-17
 
 ### memo.md 对齐 + 树形健康检查 + 飞书集成
