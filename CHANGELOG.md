@@ -1,5 +1,61 @@
 # 变更记录
 
+## v6.0.0 — 2026-04-17
+
+### 树形知识导航 + Git 版控
+
+#### 核心变更
+
+**1. 知识库改为树形结构，AI 通过逐层读取摘要自动发现关联**
+
+```
+JavaScript
+├── 作用域
+│   ├── 闭包
+│   └── 变量提升
+├── 函数式编程
+│   ├── 高阶函数
+│   └── 柯里化
+React
+├── Hooks
+│   ├── useState
+│   └── useEffect
+```
+
+关联发现流程（替换原 search 模式）：
+1. `tree-roots` → 读所有根节点摘要
+2. `tree-children --parent "xxx"` → 逐层下探
+3. 找到最精确 parent → 同层兄弟 → related
+4. 不需要搜索，不需要猜关键词
+
+**2. 新增命令**
+
+| 命令 | 作用 |
+|---|---|
+| `tree-roots` | 列出所有根节点（parent 为空）的 id + topic + summary + child_count |
+| `tree-children --parent "topic"` | 列出指定父节点的直接子节点摘要 |
+| `tree-summary` | 返回整棵树的骨架（嵌套 JSON） |
+
+**3. 修复 ID 冲突 bug**
+
+`generate_id` 加入毫秒后缀，同一秒内创建的条目不再覆盖。
+
+**4. Git 版控**
+
+- `git init` + `.gitignore`（排除 data/、__pycache__/）
+- `v5.0.0` tag 标记基线
+- 树形导航在 `tree-nav` 分支开发
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `kb.py` | 新增 `tree-roots`、`tree-children`、`tree-summary` 命令；修复 `generate_id` 毫秒冲突 |
+| `digest.md` | 关联发现流程从 search 模式改为树形导航模式 |
+| `SKILL.md` | 知识关联原则改为树形导航；CLI 加入 tree 命令 |
+
+---
+
 ## v5.0.0 — 2026-04-17
 
 ### 遗忘曲线复习调度

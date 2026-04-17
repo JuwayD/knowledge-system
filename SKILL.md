@@ -121,12 +121,13 @@ source_digest: digest-xxx
 
 ## 知识关联原则
 
-知识库不是平的文件列表，而是一张知识网络。AI 必须自动维护知识之间的关联性，不需要用户提示：
+知识库是一棵自动生长的树。每个 knowledge 条目通过 `parent` 字段挂在某个父节点下，形成层级关系。
 
-- **创建新 knowledge 时**：先 `search --kind knowledge` 查找已有条目，自动分析 parent / prerequisites / related 关系并填入。
+- **树形导航发现关联**：创建新 knowledge 时，用 `tree-roots` 读根节点摘要，再 `tree-children --parent "xxx"` 逐层下探，找到最精确的 parent 位置。同层兄弟自动成为 related。
 - **正文双向链接**：knowledge 正文中用 `[[主题]]` 标注关联概念。
-- **反向更新**：新条目入库后，对被引用的已有条目调用 `update-knowledge` 补充 related 字段，保持双向关联。
-- **查询反向链接**：用 `backlinks --query "主题"` 查看哪些条目引用了指定主题。
+- **反向更新**：新条目入库后，对同层兄弟调用 `update-knowledge` 补充 related 字段。
+- **查看树结构**：`tree-summary` 返回整棵树的骨架。
+- **查看反向引用**：`backlinks --query "主题"` 扫描所有 `[[xxx]]` 链接。
 
 ## 路由规则
 
@@ -189,6 +190,11 @@ python ./kb.py update-knowledge --id "已有id" --related "新知识topic"
 python ./kb.py due-reviews
 python ./kb.py due-reviews --days 3
 python ./kb.py record-review --id "knowledge-id"
+
+# 树形知识导航
+python ./kb.py tree-roots
+python ./kb.py tree-children --parent "JavaScript"
+python ./kb.py tree-summary
 ```
 
 ## 工作原则

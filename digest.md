@@ -40,21 +40,26 @@
 
 ## 自动知识关联（强制执行）
 
-调用 `complete-digest` 生成 knowledge 条目前，**必须**完成以下步骤，不需要用户提示：
+调用 `complete-digest` 生成 knowledge 条目前，**必须**通过树形导航发现关联，不需要用户提示：
 
-### 1. 搜索已有知识
+### 1. 读取根节点
+```bash
+python ./kb.py tree-roots
 ```
-python ./kb.py search --kind knowledge --query "当前主题关键词"
+读所有根节点的 topic + summary，判断新知识属于哪个根分支。
+
+### 2. 逐层下探
+对选中的根节点：
+```bash
+python ./kb.py tree-children --parent "根节点topic"
 ```
+读子节点的 topic + summary，判断新知识属于哪个子分支。重复直到找到最精确的 parent。
 
-### 2. 分析关系
-根据搜索结果，判断新知识与已有知识的关系：
-- **parent**：新知识属于哪个更大主题？
-- **prerequisites**：理解新知识需要先掌握什么？
-- **related**：哪些已有知识与新知识有横向关联？
-
-### 3. 填入关联字段
-`complete-digest` 时带上 `--parent`、`--prerequisites`、`--related` 参数。
+### 3. 建立关联
+- 找到的最精确父节点 → `--parent`
+- 同层兄弟节点 → `--related`
+- 上层节点 → 正文 `[[双链]]`
+- 理解前置 → `--prerequisites`
 
 ### 4. 正文使用双向链接
 knowledge 正文中用 `[[已有知识主题]]` 标注关联，例如：
@@ -66,10 +71,10 @@ knowledge 正文中用 `[[已有知识主题]]` 标注关联，例如：
 ```
 
 ### 5. 更新反向关联
-新知识入库后，对被引用的已有知识条目调用 `update-knowledge`，把新知识加入其 `related` 字段：
-```bash
-python ./kb.py update-knowledge --id "已有knowledge-id" --related "新知识topic,其他已有related"
-```
+新知识入库后，对同层兄弟条目调用 `update-knowledge`，把新知识加入其 `related` 字段。
+
+### 6. 新知识没有匹配的根节点
+说明这是一个全新领域，让它成为新的根节点（不填 `--parent`）。
 
 ## 消化记录结构
 
