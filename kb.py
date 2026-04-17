@@ -60,6 +60,7 @@ Commands:
   tree-roots
   tree-children --parent <topic>
   tree-summary
+  tree-check [--threshold <n>]
 """
 
 
@@ -1050,18 +1051,99 @@ def cmd_tree_children(args: argparse.Namespace) -> int:
     ensure_data_dirs()
     parent_topic = args.parent
     results = []
+    child_count_map = _build_child_count_map()
     for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
         data = read_record(path)
         if data.get("parent", "") == parent_topic:
-            results.append(
+            topic = data.get("topic", "")
+            cc = child_count_map.get(topic, 0)
+            entry = {
+                "id": data.get("id"),
+                "topic": topic,
+                "summary": data.get("summary", ""),
+                "tags": data.get("tags", []),
+                "child_count": cc,
+            }
+            results.append(entry)
+    warnings = []
+    total = len(results)
+    if total > 8:
+        warnings.append(
+            f"SPLIT_SUGGESTED: parent '{parent_topic}' has {total} children (>8). "
+            "Consider splitting into sub-categories."
+        )
+    for r in results:
+        if r["child_count"] > 8:
+            warnings.append(
+                f"SPLIT_SUGGESTED: child '{r['topic']}' has {r['child_count']} children (>8). "
+                "Consider splitting into sub-categories."
+            )
+    output = {"children": results}
+    if warnings:
+        output["_warnings"] = warnings
+    print_json(output)
+    return 0
+
+
+def _build_child_count_map() -> dict:
+    counts = {}
+    for path in KNOWLEDGE_DIR.glob("*.md"):
+        data = read_record(path)
+        p = data.get("parent", "")
+        if p:
+            counts[p] = counts.get(p, 0) + 1
+    return counts
+
+
+def cmd_tree_check(args: argparse.Namespace) -> int:
+    ensure_data_dirs()
+    threshold = args.threshold or 8
+    child_count_map = _build_child_count_map()
+    all_topics = set()
+    for path in KNOWLEDGE_DIR.glob("*.md"):
+        data = read_record(path)
+        all_topics.add(data.get("topic", ""))
+
+    issues = []
+    for topic, count in child_count_map.items():
+        if count > threshold:
+            issues.append(
                 {
-                    "id": data.get("id"),
-                    "topic": data.get("topic"),
-                    "summary": data.get("summary", ""),
-                    "tags": data.get("tags", []),
+                    "type": "too_many_children",
+                    "topic": topic,
+                    "child_count": count,
+                    "suggestion": f"'{topic}' has {count} children (>{threshold}). Consider splitting into sub-categories.",
                 }
             )
-    print_json(results)
+
+    orphans = []
+    for path in KNOWLEDGE_DIR.glob("*.md"):
+        data = read_record(path)
+        topic = data.get("topic", "")
+        parent = data.get("parent", "")
+        if not parent and child_count_map.get(topic, 0) == 0:
+            content = data.get("content", "")
+            if not content.strip():
+                orphans.append(topic)
+    if orphans:
+        issues.append(
+            {
+                "type": "empty_roots",
+                "topics": orphans,
+                "suggestion": "These root nodes have no children and no content. Consider merging into an existing root or removing.",
+            }
+        )
+
+    stats = {
+        "total_nodes": sum(1 for _ in KNOWLEDGE_DIR.glob("*.md")),
+        "root_count": sum(
+            1 for _ in KNOWLEDGE_DIR.glob("*.md") if not read_record(_).get("parent")
+        ),
+        "max_children": max(child_count_map.values()) if child_count_map else 0,
+        "threshold": threshold,
+        "issue_count": len(issues),
+    }
+    print_json({"stats": stats, "issues": issues})
     return 0
 
 
@@ -1479,6 +1561,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     tree_summary_parser = subparsers.add_parser("tree-summary")
     tree_summary_parser.set_defaults(func=cmd_tree_summary)
+
+    tree_check_parser = subparsers.add_parser("tree-check")
+    tree_check_parser.add_argument("--threshold", type=int, default=8)
+    tree_check_parser.set_defaults(func=cmd_tree_check)
 
     return parser
 

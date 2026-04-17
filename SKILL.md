@@ -128,6 +128,7 @@ source_digest: digest-xxx
 - **反向更新**：新条目入库后，对同层兄弟调用 `update-knowledge` 补充 related 字段。
 - **查看树结构**：`tree-summary` 返回整棵树的骨架。
 - **查看反向引用**：`backlinks --query "主题"` 扫描所有 `[[xxx]]` 链接。
+- **树形健康检查**：`tree-check` 扫描全树，当某个父节点子节点超过阈值（默认 8）时提示拆分建议。`tree-children` 输出也会包含 `_warnings`。
 
 ## 路由规则
 
@@ -146,6 +147,44 @@ source_digest: digest-xxx
 - 复习巩固：`review.md`
 - 知识消化：`digest.md`
 - 备忘体系：`memo.md`
+
+## 飞书集成
+
+通过 `feishu.py` 将知识库同步到飞书 Wiki，实现可视化阅读。
+
+### 前置准备
+
+1. 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用
+2. 添加「机器人」能力
+3. 在「权限管理」中开通以下权限：
+   - `wiki:wiki` — 查看、编辑和管理知识库
+   - `wiki:node:create` — 创建知识库节点
+   - `docx:document` — 读写文档
+4. 创建版本并发布，等待管理员审批通过
+5. 将应用添加为目标知识库的管理员
+
+### 配置认证
+
+```bash
+python ./feishu.py auth --app-id "cli_xxx" --app-secret "xxx" --space-id "xxx"
+python ./feishu.py status
+```
+
+### 同步知识库
+
+```bash
+# 同步整棵知识树（先根节点后子节点）
+python ./feishu.py sync-tree
+
+# 同步指定条目
+python ./feishu.py sync --id "knowledge-xxx"
+
+# 同步某父节点下的所有子节点
+python ./feishu.py sync --parent "JavaScript"
+
+# 预览模式（不实际执行）
+python ./feishu.py sync-tree --dry-run
+```
 
 ## CLI 工具
 
@@ -195,6 +234,8 @@ python ./kb.py record-review --id "knowledge-id"
 python ./kb.py tree-roots
 python ./kb.py tree-children --parent "JavaScript"
 python ./kb.py tree-summary
+python ./kb.py tree-check
+python ./kb.py tree-check --threshold 5
 ```
 
 ## 工作原则

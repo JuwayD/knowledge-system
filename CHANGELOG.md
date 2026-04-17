@@ -1,5 +1,48 @@
 # 变更记录
 
+## v7.0.0 — 2026-04-17
+
+### memo.md 对齐 + 树形健康检查 + 飞书集成
+
+#### 核心变更
+
+**1. memo.md 对齐到当前架构**
+
+- 补充 Markdown 存储结构示例
+- 补全 CLI 命令（`get-memo`、`--deadline` 等）
+- 增加备忘生命周期（创建→跟踪→完成/引流）
+- 增加与知识库双向链接关联说明
+- 增加引流到 review.md 的路由
+
+**2. 树形健康检查与拆分建议**
+
+- 新增 `tree-check [--threshold <n>]` 命令：扫描全树，报告子节点过多的父节点、空根节点等
+- `tree-children` 增强：每个子节点增加 `child_count`，超过阈值时输出 `_warnings`
+- 新增 `_build_child_count_map()` 辅助函数
+
+**3. 飞书知识库集成**
+
+新增 `feishu.py` 独立脚本，负责将本地知识库同步到飞书 Wiki：
+- `auth` — 配置飞书应用凭证和目标知识库
+- `status` — 查看认证状态和已映射节点
+- `sync` — 同步指定/全部知识条目到飞书
+- `sync-tree` — 按树形结构同步（先根节点后子节点）
+- 支持 Markdown → 飞书文档块转换（标题、段落、列表、代码块、表格）
+- 支持 `--dry-run` 预览模式
+- 节点映射存储在 `data/feishu-config.json`（gitignored）
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `memo.md` | 全面重写：存储结构、生命周期、完整 CLI 示例 |
+| `kb.py` | 新增 `tree-check` 命令、`_build_child_count_map`；`tree-children` 增加 `child_count` 和 `_warnings` |
+| `SKILL.md` | 新增"飞书集成"章节；树形健康检查说明；CLI 加入 `tree-check` |
+| `digest.md` | 知识关联流程新增第 7 步"树形健康检查" |
+| `feishu.py` | 新增：飞书 Wiki 同步脚本 |
+
+---
+
 ## v6.0.0 — 2026-04-17
 
 ### 树形知识导航 + Git 版控
