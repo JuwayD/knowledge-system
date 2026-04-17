@@ -74,4 +74,7 @@ python ./kb.py update-memo --id "memo-xxx" --status done
 # 查看学习计划进度
 python ./kb.py list-plans --status active
 python ./kb.py get-plan --id "plan-xxx"
+
+# 同步今日新增/更新的知识到飞书
+python ./feishu.py sync-tree
 ```

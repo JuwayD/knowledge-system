@@ -160,6 +160,71 @@ def _create_child_node(title: str, markdown: str, space_id: str, parent_node_tok
     return {"ok": True, "data": {"node_token": node_token, "doc_id": obj_token, "doc_url": f"https://www.feishu.cn/wiki/{node_token}"}}
 
 
+def _update_doc(doc_id: str, markdown: str, title: str = "") -> dict:
+    cmd_args = [
+        "docs", "+update",
+        "--doc", doc_id,
+        "--markdown", markdown,
+        "--mode", "overwrite",
+    ]
+    if title:
+        cmd_args += ["--new-title", title]
+    return run_lark(*cmd_args)
+
+
+def _sync_entry(entry: dict, config: dict) -> str:
+    topic = entry.get("topic", "")
+    parent = entry.get("parent", "")
+    content = entry.get("content", "")
+    updated_at = entry.get("updated_at", "")
+    mapping = config.get("node_mapping", {})
+    space_id = config.get("space_id", "")
+
+    existing = mapping.get(topic)
+    if existing and existing.get("node_token"):
+        synced_at = existing.get("synced_at", "")
+        if synced_at and updated_at and updated_at <= synced_at:
+            return "SKIP"
+
+        doc_id = existing.get("doc_id", "")
+        if doc_id and content:
+            result = _update_doc(doc_id, content, topic)
+            if result.get("ok") is False:
+                return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+        existing["synced_at"] = updated_at or _now_iso()
+        config["node_mapping"] = mapping
+        save_config(config)
+        return "UPDATED"
+
+    parent_node_token = ""
+    if parent and parent in mapping:
+        parent_node_token = mapping[parent].get("node_token", "")
+
+    if parent_node_token:
+        result = _create_child_node(topic, content, space_id, parent_node_token)
+    else:
+        result = _create_doc(topic, content, space_id)
+
+    if result.get("ok"):
+        node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
+        doc_id = result.get("data", {}).get("doc_id", "")
+        mapping[topic] = {
+            "node_token": node_token,
+            "doc_id": doc_id,
+            "synced_at": updated_at or _now_iso(),
+        }
+        config["node_mapping"] = mapping
+        save_config(config)
+        return f"CREATED -> {node_token}"
+    else:
+        return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+
+
+def _now_iso() -> str:
+    from datetime import datetime
+    return datetime.now().isoformat(timespec="seconds")
+
+
 def _collect_entries(args) -> list:
     entries = []
     if hasattr(args, "id") and args.id:
@@ -179,56 +244,27 @@ def _collect_entries(args) -> list:
 
 def cmd_sync(args):
     config = load_config()
-    space_id = config.get("space_id")
-    if not space_id:
+    if not config.get("space_id"):
         print("ERROR\tNo space_id configured. Run: feishu.py config --space-id <id>")
         return 1
 
-    mapping = config.get("node_mapping", {})
     entries = _collect_entries(args)
-
     if not entries:
         print("NO_ENTRIES\tNo matching knowledge entries found.")
         return 0
 
-    print(f"Syncing {len(entries)} entries to space {space_id}...")
-
+    print(f"Syncing {len(entries)} entries...")
     for entry in entries:
         topic = entry.get("topic", "")
-        parent = entry.get("parent", "")
-        content = entry.get("content", "")
-
         if args.dry_run:
-            existing = mapping.get(topic, {})
+            existing = config.get("node_mapping", {}).get(topic, {})
             status = "UPDATE" if existing.get("node_token") else "CREATE"
-            parent_info = f" (parent: {parent})" if parent else " (root)"
+            parent_info = f" (parent: {entry.get('parent')})" if entry.get("parent") else " (root)"
             print(f"  [{status}] {topic}{parent_info}")
             continue
 
-        parent_node_token = ""
-        if parent and parent in mapping:
-            parent_node_token = mapping[parent].get("node_token", "")
-
-        existing = mapping.get(topic)
-        if existing and existing.get("node_token"):
-            print(f"  SKIP\t{topic} (already mapped to {existing['node_token']})")
-            continue
-
-        if parent_node_token:
-            result = _create_child_node(topic, content, space_id, parent_node_token)
-        else:
-            result = _create_doc(topic, content, space_id)
-        if result.get("ok"):
-            node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
-            doc_id = result.get("data", {}).get("doc_id", "")
-            mapping[topic] = {"node_token": node_token, "doc_id": doc_id}
-            print(f"  CREATED\t{topic} -> {node_token}")
-        else:
-            print(f"  FAILED\t{topic}: {json.dumps(result, ensure_ascii=False)}")
-
-    if not args.dry_run:
-        config["node_mapping"] = mapping
-        save_config(config)
+        result = _sync_entry(entry, config)
+        print(f"  {result}\t{topic}")
 
     print(f"Done. {len(entries)} entries processed.")
     return 0
@@ -253,52 +289,31 @@ def cmd_sync_tree(args):
     if args.dry_run:
         print(f"Would sync {len(roots)} roots + {len(children)} children to space {space_id}")
         for e in roots:
-            print(f"  [CREATE] {e.get('topic')} (root)")
+            existing = config.get("node_mapping", {}).get(e.get("topic", ""), {})
+            status = "UPDATE" if existing.get("node_token") else "CREATE"
+            print(f"  [{status}] {e.get('topic')} (root)")
         for e in children:
-            print(f"  [CREATE] {e.get('topic')} (parent: {e.get('parent')})")
+            existing = config.get("node_mapping", {}).get(e.get("topic", ""), {})
+            status = "UPDATE" if existing.get("node_token") else "CREATE"
+            print(f"  [{status}] {e.get('topic')} (parent: {e.get('parent')})")
         return 0
 
     print(f"Syncing tree: {len(roots)} roots + {len(children)} children...")
 
     for entry in roots:
-        topic = entry.get("topic", "")
-        content = entry.get("content", "")
-        if mapping.get(topic, {}).get("node_token"):
-            print(f"  SKIP\t{topic} (already mapped)")
-            continue
-        result = _create_doc(topic, content, space_id)
-        if result.get("ok"):
-            node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
-            doc_id = result.get("data", {}).get("doc_id", "")
-            mapping[topic] = {"node_token": node_token, "doc_id": doc_id}
-            print(f"  CREATED\t{topic} -> {node_token}")
-        else:
-            print(f"  FAILED\t{topic}: {json.dumps(result, ensure_ascii=False)}")
+        result = _sync_entry(entry, config)
+        print(f"  {result}\t{entry.get('topic')}")
 
     for entry in children:
-        topic = entry.get("topic", "")
         parent_topic = entry.get("parent", "")
-        content = entry.get("content", "")
-        if mapping.get(topic, {}).get("node_token"):
-            print(f"  SKIP\t{topic} (already mapped)")
+        if parent_topic not in config.get("node_mapping", {}):
+            print(f"  SKIP\t{entry.get('topic')} (parent '{parent_topic}' not yet synced)")
             continue
-        parent_token = mapping.get(parent_topic, {}).get("node_token", "")
-        if not parent_token:
-            print(f"  SKIP\t{topic} (parent '{parent_topic}' not yet synced)")
-            continue
-        result = _create_child_node(topic, content, space_id, parent_token)
-        if result.get("ok"):
-            node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
-            doc_id = result.get("data", {}).get("doc_id", "")
-            mapping[topic] = {"node_token": node_token, "doc_id": doc_id}
-            print(f"  CREATED\t{topic} -> {node_token}")
-        else:
-            print(f"  FAILED\t{topic}: {json.dumps(result, ensure_ascii=False)}")
+        result = _sync_entry(entry, config)
+        print(f"  {result}\t{entry.get('topic')}")
 
-    config["space_id"] = space_id
-    config["node_mapping"] = mapping
-    save_config(config)
-    print(f"Done. {len(mapping)} total nodes mapped.")
+    total = len(config.get("node_mapping", {}))
+    print(f"Done. {total} total nodes mapped.")
     return 0
 
 

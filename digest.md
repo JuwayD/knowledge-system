@@ -112,3 +112,20 @@ python ./kb.py get-digest --id "digest-id"
 python ./kb.py complete-digest --id "digest-id" --topic "主题" --summary "一句话摘要" --tags "tag1,tag2" --content "结构化知识内容"
 python ./kb.py search --kind digests --query "主题"
 ```
+
+## 飞书同步
+
+`complete-digest` 生成 knowledge 条目后，应同步到飞书知识库：
+
+```bash
+# 同步指定条目（新条目会创建，已有条目内容变化会更新）
+python ./feishu.py sync --id "knowledge-xxx"
+
+# 或同步整棵树
+python ./feishu.py sync-tree
+```
+
+同步逻辑：
+- 新条目 → 自动创建飞书文档节点
+- 已有条目内容变化（`updated_at > synced_at`）→ 自动覆盖更新
+- 已有条目无变化 → 跳过

@@ -57,6 +57,7 @@
 - 复习通过后路由到 `teach.md`（继续下一课）。
 - 复习不通过也路由到 `teach.md`（重教）。
 - 复习期间发现新知识缺口，可路由到 `digest.md` 补充入库。
+- 复习过程中如果更新了 knowledge 内容（如内容过时重新校准），同步到飞书：`python ./feishu.py sync --id "knowledge-id"`。
 
 ## 辅助脚本
 

@@ -77,6 +77,8 @@ lesson 完成后，AI 应主动询问用户是否要沉淀知识：
 - 用户同意 → 路由到 `digest.md`，直接 `complete-digest` 一步生成 knowledge。
 - 用户跳过 → 不产生任何中间记录。
 
+沉淀完成后，新 knowledge 条目应同步到飞书（由 `digest.md` 负责）。
+
 ## 辅助脚本
 
 ```bash

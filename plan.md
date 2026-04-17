@@ -71,6 +71,7 @@ adjustments:
 - 具体授课时，路由到 `teach.md`，teach 会创建 lesson 关联到本计划的 unit。
 - 需要巩固时，路由到 `review.md`。
 - 某阶段或整主题学完要沉淀时，路由到 `digest.md`。
+- 整个计划完成后，所有沉淀的知识应同步到飞书（`python ./feishu.py sync-tree`）。
 
 ## 辅助脚本
 
