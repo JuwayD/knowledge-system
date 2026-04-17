@@ -57,6 +57,9 @@ Commands:
   backlinks --query <topic>
   due-reviews [--days <n>]
   record-review --id <knowledge_id>
+  tree-roots
+  tree-children --parent <topic>
+  tree-summary
 """
 
 
@@ -97,7 +100,9 @@ def ensure_data_dirs() -> None:
 
 
 def generate_id(prefix: str) -> str:
-    return f"{prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    import time
+
+    return f"{prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
 
 
 def split_csv(value: str) -> list[str]:
@@ -998,6 +1003,94 @@ def cmd_record_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_knowledge_tree() -> dict:
+    tree = {}
+    if not KNOWLEDGE_DIR.exists():
+        return tree
+    for path in KNOWLEDGE_DIR.glob("*.md"):
+        data = read_record(path)
+        tree[data.get("id", "")] = {
+            "id": data.get("id", ""),
+            "topic": data.get("topic", ""),
+            "summary": data.get("summary", ""),
+            "parent": data.get("parent", ""),
+            "tags": data.get("tags", []),
+        }
+    return tree
+
+
+def cmd_tree_roots(args: argparse.Namespace) -> int:
+    ensure_data_dirs()
+    results = []
+    for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        data = read_record(path)
+        if not data.get("parent"):
+            results.append(
+                {
+                    "id": data.get("id"),
+                    "topic": data.get("topic"),
+                    "summary": data.get("summary", ""),
+                    "tags": data.get("tags", []),
+                    "child_count": 0,
+                }
+            )
+    child_map = {}
+    for path in KNOWLEDGE_DIR.glob("*.md"):
+        data = read_record(path)
+        p = data.get("parent", "")
+        if p:
+            child_map[p] = child_map.get(p, 0) + 1
+    for root in results:
+        root["child_count"] = child_map.get(root["topic"], 0)
+    print_json(results)
+    return 0
+
+
+def cmd_tree_children(args: argparse.Namespace) -> int:
+    ensure_data_dirs()
+    parent_topic = args.parent
+    results = []
+    for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        data = read_record(path)
+        if data.get("parent", "") == parent_topic:
+            results.append(
+                {
+                    "id": data.get("id"),
+                    "topic": data.get("topic"),
+                    "summary": data.get("summary", ""),
+                    "tags": data.get("tags", []),
+                }
+            )
+    print_json(results)
+    return 0
+
+
+def cmd_tree_summary(args: argparse.Namespace) -> int:
+    ensure_data_dirs()
+    entries = {}
+    for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        data = read_record(path)
+        topic = data.get("topic", "")
+        parent = data.get("parent", "")
+        entries[topic] = parent
+
+    roots = [t for t, p in entries.items() if not p]
+    tree = {}
+    for root in roots:
+        tree[root] = _build_subtree(root, entries)
+    print_json(tree)
+    return 0
+
+
+def _build_subtree(parent_topic: str, entries: dict) -> list:
+    children = [t for t, p in entries.items() if p == parent_topic]
+    result = []
+    for child in children:
+        sub = _build_subtree(child, entries)
+        result.append({"topic": child, "children": sub} if sub else {"topic": child})
+    return result
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     ensure_data_dirs()
     results = []
@@ -1376,6 +1469,16 @@ def build_parser() -> argparse.ArgumentParser:
     record_review_parser = subparsers.add_parser("record-review")
     record_review_parser.add_argument("--id", required=True)
     record_review_parser.set_defaults(func=cmd_record_review)
+
+    tree_roots_parser = subparsers.add_parser("tree-roots")
+    tree_roots_parser.set_defaults(func=cmd_tree_roots)
+
+    tree_children_parser = subparsers.add_parser("tree-children")
+    tree_children_parser.add_argument("--parent", required=True)
+    tree_children_parser.set_defaults(func=cmd_tree_children)
+
+    tree_summary_parser = subparsers.add_parser("tree-summary")
+    tree_summary_parser.set_defaults(func=cmd_tree_summary)
 
     return parser
 
