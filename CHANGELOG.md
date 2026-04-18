@@ -1,5 +1,41 @@
 # 变更记录
 
+## v7.3.0 — 2026-04-18
+
+### 飞书双写模式 + 增量同步 + 各子文档触发点
+
+#### 核心变更
+
+**1. 飞书双写（FEISHU_SYNC=1）**
+
+`kb.py` 新增 `_try_feishu_sync()` 函数，在以下三个写入点自动触发飞书同步：
+- `complete-digest` — knowledge 入库后
+- `save-knowledge` — 创建/更新知识条目后
+- `update-knowledge` — 更新知识内容后
+
+设置 `FEISHU_SYNC=1` 环境变量启用，未设置则不影响现有行为。
+
+**2. 增量同步（feishu.py）**
+
+新增 `_sync_entry()` 统一处理创建/更新逻辑：
+- 新条目 → 创建飞书文档节点
+- 已有条目 `updated_at > synced_at` → `docs +update --mode overwrite` 更新
+- 无变化 → 跳过
+- 新增 `_update_doc()` 封装更新调用
+- mapping 中增加 `synced_at` 字段追踪同步时间
+
+**3. 各子文档加入飞书同步触发点**
+
+| 文档 | 触发时机 |
+|---|---|
+| `digest.md` | `complete-digest` 后 `sync --id` |
+| `teach.md` | 沉淀知识后由 digest 负责 |
+| `plan.md` | 整个计划完成后 `sync-tree` |
+| `review.md` | 更新 knowledge 内容后 `sync --id` |
+| `schedule.md` | 每日待办处理后 `sync-tree` |
+
+---
+
 ## v7.2.0 — 2026-04-18
 
 ### 每日待办聚合（schedule.md + agenda 命令）

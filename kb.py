@@ -1,6 +1,8 @@
 import argparse
 from datetime import datetime
 import json
+import os
+import subprocess
 import re
 import yaml
 import sys
@@ -8,6 +10,26 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+
+
+FEISHU_SYNC_ENABLED = os.environ.get("FEISHU_SYNC", "").lower() in ("1", "true", "yes")
+
+
+def _try_feishu_sync(knowledge_id: str):
+    if not FEISHU_SYNC_ENABLED:
+        return
+    try:
+        config_path = ROOT_DIR / "data" / "feishu-config.json"
+        if not config_path.exists():
+            return
+        feishu_py = str(ROOT_DIR / "feishu.py")
+        subprocess.run(
+            [sys.executable, feishu_py, "sync", "--id", knowledge_id],
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:
+        pass
 
 
 HELP_TEXT = """knowledge-system kb.py
@@ -473,7 +495,8 @@ def cmd_record_progress(args: argparse.Namespace) -> int:
     _sync_unit_status(data, args.unit, args.status)
     data["updated_at"] = now_iso()
     write_record(path, data)
-    print_json(progress_entry)
+    _try_feishu_sync(args.id)
+    print_json(data)
     return 0
 
 
@@ -737,6 +760,7 @@ def cmd_complete_digest(args: argparse.Namespace) -> int:
     ensure_data_dirs()
     knowledge_path = KNOWLEDGE_DIR / f"{knowledge_id}.md"
     write_record(knowledge_path, knowledge_payload)
+    _try_feishu_sync(knowledge_id)
     print_json({"digest": data, "knowledge": knowledge_payload})
     return 0
 
@@ -768,6 +792,7 @@ def cmd_save_knowledge(args: argparse.Namespace) -> int:
         "content": content if content else existing.get("content", ""),
     }
     write_record(path, payload)
+    _try_feishu_sync(knowledge_id)
     print_json(payload)
     return 0
 

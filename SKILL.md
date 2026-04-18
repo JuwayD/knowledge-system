@@ -154,6 +154,8 @@ source_digest: digest-xxx
 
 通过 `feishu.py`（底层调用 [lark-cli](https://github.com/larksuite/cli)）将知识库同步到飞书 Wiki，原生支持 Markdown。
 
+**双写模式**：设置环境变量 `FEISHU_SYNC=1` 后，`save-knowledge`、`update-knowledge`、`complete-digest` 每次写入本地缓存时自动同步到飞书，无需手动 `sync-tree`。
+
 ### 前置准备
 
 1. 安装 lark-cli：`npm install -g @larksuite/cli`
@@ -170,20 +172,15 @@ python ./feishu.py spaces
 # 设置目标知识库
 python ./feishu.py config --space-id "xxx"
 
-# 查看状态
-python ./feishu.py status
+# 启用双写（环境变量）
+$env:FEISHU_SYNC = "1"    # PowerShell
+export FEISHU_SYNC=1       # Bash
 
-# 同步整棵知识树（先根节点后子节点）
+# 手动同步（补全遗漏的条目）
 python ./feishu.py sync-tree
 
-# 同步指定条目
-python ./feishu.py sync --id "knowledge-xxx"
-
-# 同步某父节点下的所有子节点
-python ./feishu.py sync --parent "JavaScript"
-
-# 预览模式（不实际执行）
-python ./feishu.py sync-tree --dry-run
+# 查看状态
+python ./feishu.py status
 ```
 
 ## CLI 工具
