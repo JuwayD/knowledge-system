@@ -12,16 +12,29 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent
 
 
-FEISHU_SYNC_ENABLED = os.environ.get("FEISHU_SYNC", "").lower() in ("1", "true", "yes")
+FEISHU_SYNC_ENABLED = False
+
+
+def _check_feishu_sync():
+    global FEISHU_SYNC_ENABLED
+    if FEISHU_SYNC_ENABLED:
+        return True
+    config_path = ROOT_DIR / "data" / "feishu-config.json"
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            if config.get("space_id"):
+                FEISHU_SYNC_ENABLED = True
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _try_feishu_sync(knowledge_id: str):
-    if not FEISHU_SYNC_ENABLED:
+    if not _check_feishu_sync():
         return
     try:
-        config_path = ROOT_DIR / "data" / "feishu-config.json"
-        if not config_path.exists():
-            return
         feishu_py = str(ROOT_DIR / "feishu.py")
         subprocess.run(
             [sys.executable, feishu_py, "sync", "--id", knowledge_id],
@@ -799,11 +812,40 @@ def cmd_save_knowledge(args: argparse.Namespace) -> int:
 
 def cmd_get_knowledge(args: argparse.Namespace) -> int:
     path = KNOWLEDGE_DIR / f"{args.id}.md"
-    if not path.exists():
-        print(f"NOT_FOUND\t{args.id}")
-        return 1
-    print_json(read_record(path))
-    return 0
+    if path.exists():
+        print_json(read_record(path))
+        return 0
+
+    pulled = _try_pull_from_feishu(args.id)
+    if pulled:
+        print_json(read_record(path))
+        return 0
+
+    print(f"NOT_FOUND\t{args.id}")
+    return 1
+
+
+def _try_pull_from_feishu(knowledge_id: str) -> bool:
+    if not _check_feishu_sync():
+        return False
+    try:
+        config_path = ROOT_DIR / "data" / "feishu-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        mapping = config.get("node_mapping", {})
+        for topic, info in mapping.items():
+            local_id = info.get("local_id", "")
+            if local_id == knowledge_id or info.get("node_token") == knowledge_id:
+                node_token = info.get("node_token", "")
+                if node_token:
+                    subprocess.run(
+                        [sys.executable, str(ROOT_DIR / "feishu.py"), "pull", "--node-token", node_token],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def cmd_list_knowledge(args: argparse.Namespace) -> int:

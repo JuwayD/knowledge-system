@@ -22,12 +22,12 @@ Uses lark-cli (https://github.com/larksuite/cli) to sync knowledge entries to Fe
 
 Prerequisites:
   1. lark-cli installed:   npm install -g @larksuite/cli
-  2. App configured:       lark-cli config init --new
+  2. App configured:       lark-cli config init --app-id <id> --app-secret-stdin --brand feishu
   3. User authorized:      lark-cli auth login --recommend
 
 Commands:
-  config --space-id <space_id>
-    Set target wiki space ID.
+  setup
+    First-time setup: choose or create a wiki space for knowledge-system.
 
   status
     Show current config and lark-cli auth status.
@@ -35,11 +35,16 @@ Commands:
   spaces
     List available wiki spaces.
 
-  sync [--id <knowledge_id>] [--all] [--parent <topic>] [--dry-run]
-    Sync knowledge entries to Feishu Wiki.
+  pull [--all] [--node-token <token>]
+    Pull nodes FROM Feishu to local cache.
+    --all: pull all nodes in the space
+    --node-token: pull a specific node
 
-  sync-tree [--space-id <id>] [--dry-run]
-    Sync entire knowledge tree (roots first, then children).
+  sync [--id <knowledge_id>] [--all] [--parent <topic>] [--dry-run]
+    Push local knowledge to Feishu (create or update).
+
+  sync-tree [--dry-run]
+    Push entire knowledge tree.
 """
 
 
@@ -131,6 +136,266 @@ def cmd_spaces(args):
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_setup(args):
+    config = load_config()
+    if config.get("space_id"):
+        print(f"Already configured: space_id={config['space_id']}")
+        print("Run 'feishu.py config --space-id <new_id>' to change.")
+        return 0
+
+    print("=== knowledge-system 飞书首次配置 ===\n")
+    result = run_lark("wiki", "spaces", "list")
+    spaces = []
+    if "data" in result and "items" in result["data"]:
+        spaces = result["data"]["items"]
+
+    if spaces:
+        print("已有知识库：")
+        for i, space in enumerate(spaces, 1):
+            print(f"  {i}. {space['name']} ({space['space_id']})")
+        print(f"  {len(spaces) + 1}. [新建] 创建专用知识库")
+
+        try:
+            choice = int(input("\n请选择 (输入编号): ").strip())
+        except (ValueError, EOFError):
+            choice = len(spaces) + 1
+
+        if 1 <= choice <= len(spaces):
+            selected = spaces[choice - 1]
+            config["space_id"] = selected["space_id"]
+            print(f"\n已选择: {selected['name']}")
+        else:
+            create_result = run_lark(
+                "api", "POST", "/open-apis/wiki/v2/spaces",
+                "--data", json.dumps({"name": "知识系统", "description": "knowledge-system 自动同步的知识库"}),
+            )
+            if create_result.get("ok") or create_result.get("code") == 0:
+                new_space = create_result.get("data", {}).get("space", {})
+                config["space_id"] = new_space.get("space_id", "")
+                print(f"\n已创建新知识库: 知识系统 ({config['space_id']})")
+            else:
+                print(f"\n创建失败: {json.dumps(create_result, ensure_ascii=False)}")
+                print("请手动指定: feishu.py config --space-id <id>")
+                return 1
+    else:
+        print("未找到已有知识库，将自动创建...")
+        create_result = run_lark(
+            "api", "POST", "/open-apis/wiki/v2/spaces",
+            "--data", json.dumps({"name": "知识系统", "description": "knowledge-system 自动同步的知识库"}),
+        )
+        if create_result.get("ok") or create_result.get("code") == 0:
+            new_space = create_result.get("data", {}).get("space", {})
+            config["space_id"] = new_space.get("space_id", "")
+            print(f"已创建: 知识系统 ({config['space_id']})")
+        else:
+            print(f"创建失败: {json.dumps(create_result, ensure_ascii=False)}")
+            return 1
+
+    config.setdefault("node_mapping", {})
+    save_config(config)
+    print(f"\n配置已保存。后续所有知识将同步到此知识库。")
+    return 0
+
+
+def cmd_pull(args):
+    config = load_config()
+    space_id = config.get("space_id")
+    if not space_id:
+        print("ERROR\tNo space_id. Run: feishu.py setup")
+        return 1
+
+    if args.node_token:
+        _pull_single(config, args.node_token)
+    elif args.all:
+        _pull_all(config, space_id)
+    else:
+        print("ERROR\tSpecify --all or --node-token <token>")
+        return 1
+    return 0
+
+
+def _pull_all(config: dict, space_id: str):
+    result = run_lark(
+        "wiki", "nodes", "list",
+        "--params", json.dumps({"space_id": space_id}),
+        "--page-all",
+    )
+    nodes = []
+    if "data" in result and "items" in result["data"]:
+        nodes = result["data"]["items"]
+
+    if not nodes:
+        print("NO_NODES\tWiki space is empty.")
+        return
+
+    mapping = config.get("node_mapping", {})
+    print(f"Found {len(nodes)} nodes. Pulling...")
+
+    node_token_to_topic = {}
+    for node in nodes:
+        node_token = node.get("node_token", "")
+        obj_token = node.get("obj_token", "")
+        title = node.get("title", "")
+        parent_token = node.get("parent_node_token", "")
+        node_token_to_topic[node_token] = title
+
+        content = ""
+        if obj_token:
+            fetch_result = run_lark("docs", "+fetch", "--doc", obj_token)
+            content = _extract_markdown(fetch_result)
+
+        local_id = f"knowledge-feishu-{node_token}"
+        payload = {
+            "id": local_id,
+            "topic": title,
+            "summary": "",
+            "tags": [],
+            "parent": "",
+            "prerequisites": [],
+            "related": [],
+            "learned_at": "",
+            "review_count": 0,
+            "updated_at": _now_iso(),
+            "created_at": "",
+            "content": content,
+            "feishu_node_token": node_token,
+            "feishu_obj_token": obj_token,
+        }
+
+        path = KNOWLEDGE_DIR / f"{local_id}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_knowledge_file(path, payload)
+        mapping[title] = {
+            "node_token": node_token,
+            "doc_id": obj_token,
+            "local_id": local_id,
+            "synced_at": _now_iso(),
+        }
+        print(f"  PULLED\t{title} -> {local_id}")
+
+    for node in nodes:
+        parent_token = node.get("parent_node_token", "")
+        if parent_token and parent_token in node_token_to_topic:
+            title = node.get("title", "")
+            parent_topic = node_token_to_topic[parent_token]
+            local_id = f"knowledge-feishu-{node['node_token']}"
+            path = KNOWLEDGE_DIR / f"{local_id}.md"
+            if path.exists():
+                data = read_knowledge_file(path)
+                data["parent"] = parent_topic
+                write_knowledge_file(path, data)
+
+    config["node_mapping"] = mapping
+    save_config(config)
+    print(f"Done. {len(nodes)} nodes pulled.")
+
+
+def _pull_single(config: dict, node_token: str):
+    result = run_lark(
+        "wiki", "nodes", "list",
+        "--params", json.dumps({"space_id": config["space_id"], "node_token": node_token}),
+    )
+    nodes = result.get("data", {}).get("items", [])
+    if not nodes:
+        print(f"NOT_FOUND\tNode {node_token}")
+        return
+
+    node = nodes[0]
+    obj_token = node.get("obj_token", "")
+    title = node.get("title", "")
+
+    content = ""
+    if obj_token:
+        fetch_result = run_lark("docs", "+fetch", "--doc", obj_token)
+        content = _extract_markdown(fetch_result)
+
+    local_id = f"knowledge-feishu-{node_token}"
+    payload = {
+        "id": local_id,
+        "topic": title,
+        "summary": "",
+        "tags": [],
+        "parent": "",
+        "prerequisites": [],
+        "related": [],
+        "learned_at": "",
+        "review_count": 0,
+        "updated_at": _now_iso(),
+        "created_at": "",
+        "content": content,
+        "feishu_node_token": node_token,
+        "feishu_obj_token": obj_token,
+    }
+
+    path = KNOWLEDGE_DIR / f"{local_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_knowledge_file(path, payload)
+
+    mapping = config.get("node_mapping", {})
+    mapping[title] = {
+        "node_token": node_token,
+        "doc_id": obj_token,
+        "local_id": local_id,
+        "synced_at": _now_iso(),
+    }
+    config["node_mapping"] = mapping
+    save_config(config)
+    print(f"PULLED\t{title} -> {local_id}")
+
+
+def _extract_markdown(fetch_result: dict) -> str:
+    content = fetch_result.get("data", {}).get("content", "")
+    if isinstance(content, str) and content:
+        return content
+    body = fetch_result.get("data", {}).get("body", {})
+    if isinstance(body, dict):
+        blocks = body.get("blocks", [])
+        lines = []
+        for block in blocks:
+            text = _extract_block_text(block)
+            if text:
+                lines.append(text)
+        return "\n".join(lines)
+    return ""
+
+
+def _extract_block_text(block: dict) -> str:
+    btype = block.get("block_type", "")
+    data = block.get(btype, block)
+    elements = data.get("elements", []) if isinstance(data, dict) else []
+    texts = []
+    for el in elements:
+        if isinstance(el, dict):
+            tr = el.get("text_run", {})
+            if isinstance(tr, dict):
+                texts.append(tr.get("content", ""))
+    text = "".join(texts)
+    prefix = {"heading1": "# ", "heading2": "## ", "heading3": "### "}.get(btype, "")
+    return f"{prefix}{text}" if text else ""
+
+
+def write_knowledge_file(path: Path, data: dict):
+    import yaml as yaml_lib
+    meta = {k: v for k, v in data.items() if k != "content"}
+    content = data.get("content", "")
+    text = "---\n" + yaml_lib.dump(meta, allow_unicode=True, default_flow_style=False) + "---\n\n" + content + "\n"
+    path.write_text(text, encoding="utf-8")
+
+
+def read_knowledge_file(path: Path) -> dict:
+    import yaml as yaml_lib
+    text = path.read_text(encoding="utf-8")
+    parts = re.split(r"^---\s*$", text, maxsplit=2, flags=re.MULTILINE)
+    if len(parts) >= 3:
+        meta = yaml_lib.safe_load(parts[1]) or {}
+        content = parts[2].strip()
+    else:
+        meta = {}
+        content = text.strip()
+    meta["content"] = content
+    return meta
 
 
 def _create_doc(title: str, markdown: str, wiki_space: str) -> dict:
@@ -329,11 +594,19 @@ def main() -> int:
     config_parser.add_argument("--space-id", required=True)
     config_parser.set_defaults(func=cmd_config)
 
+    setup_parser = subparsers.add_parser("setup")
+    setup_parser.set_defaults(func=cmd_setup)
+
     status_parser = subparsers.add_parser("status")
     status_parser.set_defaults(func=cmd_status)
 
     spaces_parser = subparsers.add_parser("spaces")
     spaces_parser.set_defaults(func=cmd_spaces)
+
+    pull_parser = subparsers.add_parser("pull")
+    pull_parser.add_argument("--all", action="store_true")
+    pull_parser.add_argument("--node-token")
+    pull_parser.set_defaults(func=cmd_pull)
 
     sync_parser = subparsers.add_parser("sync")
     sync_parser.add_argument("--id")
