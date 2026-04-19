@@ -9,7 +9,19 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent
 DATA_DIR = ROOT_DIR / "data"
 KNOWLEDGE_DIR = DATA_DIR / "knowledge"
+PLANS_DIR = DATA_DIR / "plans"
+LESSONS_DIR = DATA_DIR / "lessons"
+DIGESTS_DIR = DATA_DIR / "digests"
+MEMOS_DIR = DATA_DIR / "memos"
 CONFIG_PATH = DATA_DIR / "feishu-config.json"
+
+CATEGORY_DEFS = {
+    "knowledge": {"label": "知识库", "dir": KNOWLEDGE_DIR},
+    "plans": {"label": "学习计划", "dir": PLANS_DIR},
+    "lessons": {"label": "课堂记录", "dir": LESSONS_DIR},
+    "digests": {"label": "消化记录", "dir": DIGESTS_DIR},
+    "memos": {"label": "备忘录", "dir": MEMOS_DIR},
+}
 
 LARK_CLI = os.environ.get(
     "LARK_CLI_PATH",
@@ -437,15 +449,37 @@ def _update_doc(doc_id: str, markdown: str, title: str = "") -> dict:
     return run_lark(*cmd_args)
 
 
-def _sync_entry(entry: dict, config: dict) -> str:
-    topic = entry.get("topic", "")
-    parent = entry.get("parent", "")
+def _ensure_category_root(config: dict, kind: str) -> str:
+    category_roots = config.setdefault("category_roots", {})
+    if category_roots.get(kind):
+        return category_roots[kind]
+    label = CATEGORY_DEFS.get(kind, {}).get("label", kind)
+    result = _create_doc(label, f"# {label}\n\n", config["space_id"])
+    if result.get("ok"):
+        node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
+        doc_id = result.get("data", {}).get("doc_id", "")
+        category_roots[kind] = node_token
+        config["category_roots"] = category_roots
+        mapping = config.get("node_mapping", {})
+        mapping[f"__category__{kind}"] = {"node_token": node_token, "doc_id": doc_id}
+        config["node_mapping"] = mapping
+        save_config(config)
+        return node_token
+    return ""
+
+
+def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
+    topic = entry.get("topic", entry.get("title", entry.get("id", "")))
+    parent = entry.get("parent", "") if kind == "knowledge" else ""
     content = entry.get("content", "")
     updated_at = entry.get("updated_at", "")
+    entry_id = entry.get("id", "")
     mapping = config.get("node_mapping", {})
     space_id = config.get("space_id", "")
 
-    existing = mapping.get(topic)
+    map_key = f"{kind}:{entry_id}" if kind != "knowledge" else topic
+
+    existing = mapping.get(map_key)
     if existing and existing.get("node_token"):
         synced_at = existing.get("synced_at", "")
         if synced_at and updated_at and updated_at <= synced_at:
@@ -462,8 +496,10 @@ def _sync_entry(entry: dict, config: dict) -> str:
         return "UPDATED"
 
     parent_node_token = ""
-    if parent and parent in mapping:
+    if kind == "knowledge" and parent and parent in mapping:
         parent_node_token = mapping[parent].get("node_token", "")
+    elif kind != "knowledge":
+        parent_node_token = _ensure_category_root(config, kind)
 
     if parent_node_token:
         result = _create_child_node(topic, content, space_id, parent_node_token)
@@ -473,9 +509,10 @@ def _sync_entry(entry: dict, config: dict) -> str:
     if result.get("ok"):
         node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
         doc_id = result.get("data", {}).get("doc_id", "")
-        mapping[topic] = {
+        mapping[map_key] = {
             "node_token": node_token,
             "doc_id": doc_id,
+            "kind": kind,
             "synced_at": updated_at or _now_iso(),
         }
         config["node_mapping"] = mapping
@@ -491,16 +528,18 @@ def _now_iso() -> str:
 
 
 def _collect_entries(args) -> list:
+    kind = getattr(args, "kind", "knowledge")
+    kind_dir = CATEGORY_DEFS.get(kind, {}).get("dir", KNOWLEDGE_DIR)
     entries = []
     if hasattr(args, "id") and args.id:
-        path = KNOWLEDGE_DIR / f"{args.id}.md"
+        path = kind_dir / f"{args.id}.md"
         if path.exists():
             entries.append(read_knowledge_entry(path))
     elif hasattr(args, "all") and args.all:
-        for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        for path in sorted(kind_dir.glob("*.md")):
             entries.append(read_knowledge_entry(path))
     elif hasattr(args, "parent") and args.parent:
-        for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        for path in sorted(kind_dir.glob("*.md")):
             entry = read_knowledge_entry(path)
             if entry.get("parent") == args.parent:
                 entries.append(entry)
@@ -513,22 +552,23 @@ def cmd_sync(args):
         print("ERROR\tNo space_id configured. Run: feishu.py config --space-id <id>")
         return 1
 
+    kind = getattr(args, "kind", "knowledge")
     entries = _collect_entries(args)
     if not entries:
-        print("NO_ENTRIES\tNo matching knowledge entries found.")
+        print("NO_ENTRIES\tNo matching entries found.")
         return 0
 
-    print(f"Syncing {len(entries)} entries...")
+    print(f"Syncing {len(entries)} {kind} entries...")
     for entry in entries:
-        topic = entry.get("topic", "")
+        topic = entry.get("topic", entry.get("title", entry.get("id", "")))
         if args.dry_run:
-            existing = config.get("node_mapping", {}).get(topic, {})
+            existing = config.get("node_mapping", {}).get(topic if kind == "knowledge" else f"{kind}:{entry.get('id','')}", {})
             status = "UPDATE" if existing.get("node_token") else "CREATE"
-            parent_info = f" (parent: {entry.get('parent')})" if entry.get("parent") else " (root)"
+            parent_info = f" (parent: {entry.get('parent')})" if entry.get("parent") else ""
             print(f"  [{status}] {topic}{parent_info}")
             continue
 
-        result = _sync_entry(entry, config)
+        result = _sync_entry(entry, config, kind=kind)
         print(f"  {result}\t{topic}")
 
     print(f"Done. {len(entries)} entries processed.")
@@ -539,46 +579,56 @@ def cmd_sync_tree(args):
     config = load_config()
     space_id = args.space_id or config.get("space_id")
     if not space_id:
-        print("ERROR\tNo space_id. Run: feishu.py config --space-id <id>")
+        print("ERROR\tNo space_id. Run: feishu.py setup")
         return 1
 
-    mapping = config.get("node_mapping", {})
-
-    all_entries = []
-    for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
-        all_entries.append(read_knowledge_entry(path))
-
-    roots = [e for e in all_entries if not e.get("parent")]
-    children = [e for e in all_entries if e.get("parent")]
-
     if args.dry_run:
-        print(f"Would sync {len(roots)} roots + {len(children)} children to space {space_id}")
-        for e in roots:
-            existing = config.get("node_mapping", {}).get(e.get("topic", ""), {})
-            status = "UPDATE" if existing.get("node_token") else "CREATE"
-            print(f"  [{status}] {e.get('topic')} (root)")
-        for e in children:
-            existing = config.get("node_mapping", {}).get(e.get("topic", ""), {})
-            status = "UPDATE" if existing.get("node_token") else "CREATE"
-            print(f"  [{status}] {e.get('topic')} (parent: {e.get('parent')})")
+        print(f"Dry-run: would sync all data to space {space_id}")
+        for kind, defn in CATEGORY_DEFS.items():
+            kind_dir = defn["dir"]
+            if not kind_dir.exists():
+                continue
+            entries = [read_knowledge_entry(p) for p in sorted(kind_dir.glob("*.md"))]
+            print(f"\n  [{defn['label']}] {len(entries)} entries")
+            for e in entries:
+                print(f"    - {e.get('topic', e.get('title', e.get('id', '')))}")
         return 0
 
-    print(f"Syncing tree: {len(roots)} roots + {len(children)} children...")
+    total = 0
 
-    for entry in roots:
-        result = _sync_entry(entry, config)
-        print(f"  {result}\t{entry.get('topic')}")
-
-    for entry in children:
-        parent_topic = entry.get("parent", "")
-        if parent_topic not in config.get("node_mapping", {}):
-            print(f"  SKIP\t{entry.get('topic')} (parent '{parent_topic}' not yet synced)")
+    for kind, defn in CATEGORY_DEFS.items():
+        kind_dir = defn["dir"]
+        if not kind_dir.exists():
             continue
-        result = _sync_entry(entry, config)
-        print(f"  {result}\t{entry.get('topic')}")
+        entries = [read_knowledge_entry(p) for p in sorted(kind_dir.glob("*.md"))]
+        if not entries:
+            continue
 
-    total = len(config.get("node_mapping", {}))
-    print(f"Done. {total} total nodes mapped.")
+        print(f"\n[{defn['label']}] {len(entries)} entries...")
+
+        if kind == "knowledge":
+            roots = [e for e in entries if not e.get("parent")]
+            children = [e for e in entries if e.get("parent")]
+            for entry in roots:
+                result = _sync_entry(entry, config, kind="knowledge")
+                print(f"  {result}\t{entry.get('topic')}")
+            for entry in children:
+                parent_topic = entry.get("parent", "")
+                map_key = parent_topic
+                if map_key not in config.get("node_mapping", {}):
+                    print(f"  SKIP\t{entry.get('topic')} (parent '{parent_topic}' not synced)")
+                    continue
+                result = _sync_entry(entry, config, kind="knowledge")
+                print(f"  {result}\t{entry.get('topic')}")
+        else:
+            for entry in entries:
+                result = _sync_entry(entry, config, kind=kind)
+                title = entry.get("topic", entry.get("title", entry.get("id", "")))
+                print(f"  {result}\t{title}")
+
+        total += len(entries)
+
+    print(f"\nDone. {total} total entries processed.")
     return 0
 
 
@@ -612,6 +662,7 @@ def main() -> int:
     sync_parser.add_argument("--id")
     sync_parser.add_argument("--all", action="store_true")
     sync_parser.add_argument("--parent")
+    sync_parser.add_argument("--kind", default="knowledge", choices=list(CATEGORY_DEFS.keys()))
     sync_parser.add_argument("--dry-run", action="store_true")
     sync_parser.set_defaults(func=cmd_sync)
 

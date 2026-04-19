@@ -31,13 +31,13 @@ def _check_feishu_sync():
     return False
 
 
-def _try_feishu_sync(knowledge_id: str):
+def _try_feishu_sync(entry_id: str, kind: str = "knowledge"):
     if not _check_feishu_sync():
         return
     try:
         feishu_py = str(ROOT_DIR / "feishu.py")
         subprocess.run(
-            [sys.executable, feishu_py, "sync", "--id", knowledge_id],
+            [sys.executable, feishu_py, "sync", "--id", entry_id, "--kind", kind],
             capture_output=True,
             timeout=30,
         )
@@ -400,6 +400,7 @@ def cmd_save_plan(args: argparse.Namespace) -> int:
         "progress": existing.get("progress", []),
     }
     write_record(path, payload)
+    _try_feishu_sync(plan_id, kind="plans")
     print_json(payload)
     return 0
 
@@ -508,7 +509,7 @@ def cmd_record_progress(args: argparse.Namespace) -> int:
     _sync_unit_status(data, args.unit, args.status)
     data["updated_at"] = now_iso()
     write_record(path, data)
-    _try_feishu_sync(args.id)
+    _try_feishu_sync(args.id, kind="plans")
     print_json(data)
     return 0
 
@@ -570,6 +571,7 @@ def cmd_save_lesson(args: argparse.Namespace) -> int:
         "created_at": existing.get("created_at", now_iso()),
     }
     write_record(path, payload)
+    _try_feishu_sync(lesson_id, kind="lessons")
     print_json(payload)
     return 0
 
@@ -679,6 +681,7 @@ def cmd_save_digest(args: argparse.Namespace) -> int:
         "content": content if content else existing.get("content", ""),
     }
     write_record(path, payload)
+    _try_feishu_sync(digest_id, kind="digests")
     print_json(payload)
     return 0
 
@@ -738,6 +741,7 @@ def cmd_update_digest(args: argparse.Namespace) -> int:
         data["content"] = content
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="digests")
     print_json(data)
     return 0
 
@@ -916,6 +920,7 @@ def cmd_add_memo(args: argparse.Namespace) -> int:
         "content": content if content else existing.get("content", ""),
     }
     write_record(path, payload)
+    _try_feishu_sync(memo_id, kind="memos")
     print_json(payload)
     return 0
 
@@ -976,6 +981,7 @@ def cmd_update_memo(args: argparse.Namespace) -> int:
         data["content"] = content
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="memos")
     print_json(data)
     return 0
 
