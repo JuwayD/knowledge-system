@@ -20,8 +20,8 @@
 4. 信息充分后，创建学习计划（`save-plan`），拆出阶段与模块。
 5. 告诉用户计划概览，等待用户选择从哪个模块开始。
 6. 用户要开始上课时，路由到 `teach.md`，由 teach 创建 lesson 关联到对应 unit。
-7. 每次授课结束后，通过 lesson 完成自动同步 unit status，保持计划进度更新。
-8. 整套主题完成后，路由到 `digest.md` 做知识沉淀。
+7. 每次授课结束后，`complete-lesson` 会自动同步 unit status 并更新 `resume_from`。如果所有 unit 都 mastered，plan 自动标记为 `completed`。
+8. plan 完成后（status 变为 `completed`），**必须**主动引导用户进入 `digest.md` 做知识沉淀，不要等待用户要求。
 
 ## 学习计划结构
 

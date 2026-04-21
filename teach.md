@@ -71,10 +71,11 @@ next: 下次继续 props
 
 ## 教学完成后
 
-`complete-lesson` 会自动同步 plan unit status（如果有关联）。
+`complete-lesson` 会自动同步 plan unit status，并更新 plan 的 `resume_from`。如果 plan 所有 unit 都 mastered，plan 会自动标记为 `completed`。
 
-lesson 完成后，AI 应主动询问用户是否要沉淀知识：
-- 用户同意 → 路由到 `digest.md`，直接 `complete-digest` 一步生成 knowledge。
+lesson 完成后，根据场景决定是否沉淀：
+- **独立教学**（无 plan_id）：AI 主动询问用户是否要沉淀知识 → 用户同意 → 路由到 `digest.md`，直接 `complete-digest` 一步生成 knowledge。
+- **plan 内教学**（有 plan_id）：**不在此处沉淀**。等整个 plan 所有 unit 完成后，由 `plan.md` 流程统一路由到 `digest.md` 做沉淀。
 - 用户跳过 → 不产生任何中间记录。
 
 沉淀完成后，新 knowledge 条目应同步到飞书（由 `digest.md` 负责）。

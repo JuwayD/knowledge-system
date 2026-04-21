@@ -92,6 +92,7 @@ Commands:
   backlinks --query <topic>
   due-reviews [--days <n>]
   record-review --id <knowledge_id>
+  reset-review --id <knowledge_id>
   tree-roots
   tree-children --parent <topic>
   tree-summary
@@ -655,6 +656,22 @@ def cmd_complete_lesson(args: argparse.Namespace) -> int:
         if plan_path.exists():
             plan_data = read_record(plan_path)
             _sync_unit_status(plan_data, data["unit"], lesson_status)
+
+            units = plan_data.get("units", [])
+            if isinstance(units, str):
+                try:
+                    units = json.loads(units)
+                except (json.JSONDecodeError, TypeError):
+                    units = []
+            plan_data["units"] = units
+
+            remaining = [u for u in units if u.get("status") not in ("mastered", "completed")]
+            if remaining:
+                plan_data["resume_from"] = remaining[0].get("name", "")
+            else:
+                plan_data["status"] = "completed"
+                plan_data["resume_from"] = ""
+
             plan_data["updated_at"] = now_iso()
             write_record(plan_path, plan_data)
 
@@ -778,6 +795,18 @@ def cmd_complete_digest(args: argparse.Namespace) -> int:
     knowledge_path = KNOWLEDGE_DIR / f"{knowledge_id}.md"
     write_record(knowledge_path, knowledge_payload)
     _try_feishu_sync(knowledge_id)
+
+    source_plan = data.get("source_plan") or data.get("source-plan")
+    if source_plan:
+        plan_path = PLANS_DIR / f"{source_plan}.md"
+        if plan_path.exists():
+            plan_data = read_record(plan_path)
+            if plan_data.get("status") != "completed":
+                plan_data["status"] = "completed"
+                plan_data["resume_from"] = ""
+                plan_data["updated_at"] = now_iso()
+                write_record(plan_path, plan_data)
+
     print_json({"digest": data, "knowledge": knowledge_payload})
     return 0
 
@@ -1072,6 +1101,21 @@ def cmd_record_review(args: argparse.Namespace) -> int:
         data["learned_at"] = data["created_at"]
     data["review_count"] = data.get("review_count", 0) + 1
     data["last_reviewed_at"] = now_iso()
+    data["updated_at"] = now_iso()
+    write_record(path, data)
+    print_json(data)
+    return 0
+
+
+def cmd_reset_review(args: argparse.Namespace) -> int:
+    path = KNOWLEDGE_DIR / f"{args.id}.md"
+    if not path.exists():
+        print(f"NOT_FOUND\t{args.id}")
+        return 1
+    data = read_record(path)
+    data["review_count"] = 0
+    data["learned_at"] = now_iso()
+    data["last_reviewed_at"] = ""
     data["updated_at"] = now_iso()
     write_record(path, data)
     print_json(data)
@@ -1709,6 +1753,10 @@ def build_parser() -> argparse.ArgumentParser:
     record_review_parser = subparsers.add_parser("record-review")
     record_review_parser.add_argument("--id", required=True)
     record_review_parser.set_defaults(func=cmd_record_review)
+
+    reset_review_parser = subparsers.add_parser("reset-review")
+    reset_review_parser.add_argument("--id", required=True)
+    reset_review_parser.set_defaults(func=cmd_reset_review)
 
     tree_roots_parser = subparsers.add_parser("tree-roots")
     tree_roots_parser.set_defaults(func=cmd_tree_roots)

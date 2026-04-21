@@ -28,7 +28,7 @@
 5. 根据结果处理：
    - 记住：调用 `record-review` 更新 review_count，下次间隔自动延长。
    - 忘了：路由到 `teach.md` 重教，**不更新 review_count**（重教后自然重置间隔）。
-6. 如果用户有学习计划，同步更新 plan unit status。
+6. 如果用户有学习计划，同步更新 plan unit status（追溯方式：knowledge 的 `source_digest` → digest 的 `source_plan` → 找到对应的 plan 和 unit）。
 
 ## 复习原则
 
@@ -48,9 +48,9 @@
 ## 结果处理
 
 - 记住了：`record-review --id "knowledge-id"`，review_count +1，下次间隔自动延长。
-- 忘了：路由到 `teach.md` 重教，不调用 `record-review`。
-- 部分记住：根据遗忘程度决定是轻量巩固还是重教。
-- 内容过时：先重新搜索校准，更新 knowledge 内容后再复习。
+- 忘了：路由到 `teach.md` 重教。重教完成后，**必须**调用 `reset-review --id "knowledge-id"` 重置复习计数，让遗忘曲线从新开始计算。
+- 部分记住：根据遗忘程度决定是轻量巩固还是重教。部分记住也算通过，调用 `record-review`。
+- 内容过时：先重新搜索校准，更新 knowledge 内容（`update-knowledge`）后再复习。
 
 ## 与其他分支的关系
 
@@ -68,6 +68,9 @@ python ./kb.py due-reviews --days 3
 
 # 复习通过，更新计数
 python ./kb.py record-review --id "knowledge-id"
+
+# 复习不通过重教后，重置复习计数
+python ./kb.py reset-review --id "knowledge-id"
 
 # 查看知识点详情
 python ./kb.py get-knowledge --id "knowledge-id"

@@ -242,6 +242,7 @@ python ./kb.py update-knowledge --id "已有id" --related "新知识topic"
 python ./kb.py due-reviews
 python ./kb.py due-reviews --days 3
 python ./kb.py record-review --id "knowledge-id"
+python ./kb.py reset-review --id "knowledge-id"
 
 # 树形知识导航
 python ./kb.py tree-roots
