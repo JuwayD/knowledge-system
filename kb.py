@@ -8,6 +8,10 @@ import yaml
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 
@@ -262,7 +266,7 @@ def resolve_path(relative_path: str) -> Path:
 
 def get_content(args: argparse.Namespace) -> str:
     if getattr(args, "stdin", False):
-        return sys.stdin.read()
+        return sys.stdin.buffer.read().decode("utf-8")
     return args.content or ""
 
 
