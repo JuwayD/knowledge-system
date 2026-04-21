@@ -29,7 +29,7 @@
 
 - 不替用户做决定，只给出建议和优先级。
 - 如果用户今天时间有限，帮用户挑选最关键的前几项。
-- 完成一项后及时更新状态（`record-review`、`update-memo --status done` 等）。
+- 完成一项后及时更新状态（`record-review`、`reset-review`、`update-memo --status done` 等）。
 - 不要一次性倒出所有信息，先给概览，用户追问再展开细节。
 
 ## 输出格式建议
@@ -71,6 +71,7 @@ python ./kb.py agenda --days 7
 # 处理复习
 python ./kb.py due-reviews
 python ./kb.py record-review --id "knowledge-xxx"
+python ./kb.py reset-review --id "knowledge-xxx"
 
 # 处理备忘
 python ./kb.py list-memos --status open --sort updated_at --desc

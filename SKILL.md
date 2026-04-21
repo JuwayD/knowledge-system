@@ -87,7 +87,7 @@ next: 下次继续 props
 ...
 ```
 
-`complete-lesson` 会自动同步关联的 plan unit status。
+`complete-lesson` 会自动同步关联的 plan unit status、更新 `resume_from`。所有 unit mastered 时 plan 自动标记 `completed`。
 
 ### 知识库条目（knowledge）
 

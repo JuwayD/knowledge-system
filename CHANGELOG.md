@@ -1,5 +1,49 @@
 # 变更记录
 
+## v8.1.0 — 2026-04-22
+
+### 学习生命周期打通
+
+#### 核心变更
+
+**1. complete-lesson 自动联动**
+
+完成授课后自动更新学习计划状态：
+- 同步 unit status（已有）+ 更新 `resume_from` 指向下一个 pending unit
+- 所有 unit mastered 时，plan 自动标记为 `completed`
+
+**2. complete-digest 回写 plan**
+
+知识沉淀完成后自动回写关联的 plan：
+- 如果 digest 有 `source_plan`，将 plan 标记为 `completed`（若尚未完成）
+
+**3. 新增 reset-review 命令**
+
+复习不通过重教后，重置 knowledge 的 `review_count=0` + `learned_at=now`，让遗忘曲线从新开始计算。
+
+**4. 沉淀时机区分**
+
+- 独立教学（无 plan_id）：lesson 完成后询问用户是否沉淀
+- plan 内教学（有 plan_id）：等 plan 全部 unit 完成后统一沉淀
+
+**5. 查找优先原则**
+
+SKILL.md 强制要求新增：创建任何条目前必须先 search/list 检查已有，避免重复创建。
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `kb.py` | `complete-lesson` 增加 resume_from + plan 自动 completed；`complete-digest` 增加回写 plan；新增 `reset-review` 命令 |
+| `SKILL.md` | 强制要求新增查找优先规则；CLI 加入 `reset-review` |
+| `teach.md` | 区分独立教学 vs plan 内教学的沉淀时机 |
+| `plan.md` | 明确 plan completed 后主动引导沉淀 |
+| `review.md` | 复习不通过重教后调用 `reset-review`；补充追溯链说明 |
+| `FLOWCHART.md` | 学习生命周期图、复习调度图、数据流图同步更新 |
+| `README.md` | 学习生命周期描述更新；加入 `reset-review` 命令 |
+
+---
+
 ## v8.0.0 — 2026-04-18
 
 ### 飞书主存储架构重构

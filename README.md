@@ -32,9 +32,14 @@
 ## 学习生命周期
 
 ```
-plan 制定计划 → teach 逐课教学 → digest 沉淀知识 → review 遗忘曲线复习
-                    ↑                                  ↓
-                    └──── 复习不通过，重新教学 ←─────────┘
+plan 制定计划 → teach 逐课教学 → plan完成自动触发 → digest 沉淀知识 → review 遗忘曲线复习
+                     ↑                                    ↓                  ↓
+                     └──── 复习不通过 → 重教 → reset-review 重置计数 ←──────┘
+
+complete-lesson 自动联动:
+  - 同步 unit status + 更新 resume_from
+  - 全部 unit mastered → plan 自动 completed
+  - plan completed → 主动引导用户进入 digest 沉淀
 ```
 
 知识通过 `parent` 字段自动构建为树形结构，AI 通过 `tree-roots` → `tree-children` 逐层导航，自动发现关联并挂载到正确的父节点下。
@@ -102,7 +107,8 @@ python kb.py complete-lesson --id "lesson-xxx" --status mastered
 ```bash
 python kb.py due-reviews             # 今日到期复习
 python kb.py due-reviews --days 7    # 未来 7 天到期
-python kb.py record-review --id "knowledge-xxx"  # 标记已复习
+python kb.py record-review --id "knowledge-xxx"  # 复习通过，计数+1
+python kb.py reset-review --id "knowledge-xxx"   # 重教后重置复习计数
 ```
 
 ### 每日待办

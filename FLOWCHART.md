@@ -32,15 +32,23 @@ flowchart LR
     subgraph 教学
         T1[teach.md] -->|save-lesson| T2[课堂记录]
         T2 -->|complete-lesson| T3{掌握?}
+        T3 -->|是| T4{plan 全部<br/>mastered?}
+        T4 -->|是| D1
+        T4 -->|否,有pending unit| T5[自动更新<br/>resume_from]
+        T3 -->|否,继续| T1
     end
 
     subgraph 沉淀
         D1[digest.md] -->|complete-digest| D2[知识条目<br/>knowledge]
+        D2 -->|回写 plan| D3[plan.completed]
     end
 
     subgraph 复习
         V1[review.md] -->|due-reviews| V2[到期复习]
         V2 -->|record-review| V3{通过?}
+        V3 -->|是| V4[count+1]
+        V3 -->|否| V5[teach.md 重教]
+        V5 -->|重教完成| V6[reset-review<br/>重置计数]
     end
 
     subgraph 待办
@@ -48,11 +56,8 @@ flowchart LR
     end
 
     P3 --> T1
-    T3 -->|是| D1
-    T3 -->|否,继续| T1
+    T5 --> T1
     D2 --> V1
-    V3 -->|是| V2
-    V3 -->|否| T1
     V2 --> S1
     D2 --> S1
     P2 --> S1
@@ -88,6 +93,7 @@ flowchart TB
         C_UPDATE_KNOWLEDGE[update-knowledge]
         C_DUE_REVIEWS[due-reviews]
         C_RECORD_REVIEW[record-review]
+        C_RESET_REVIEW[reset-review]
         C_ADD_MEMO[add-memo]
         C_AGENDA[agenda]
         C_TREE_ROOTS[tree-roots]
@@ -112,11 +118,13 @@ flowchart TB
     end
 
     AI_TEACH --> C_SAVE_LESSON --> D_LESSONS
-    AI_TEACH --> C_COMPLETE_LESSON
+    AI_TEACH -->     C_COMPLETE_LESSON -->|自动: sync unit + resume_from<br/>全部mastered → plan.completed| D_PLANS
+    C_COMPLETE_DIGEST -->|自动: 回写 plan.status=completed| D_PLANS
     AI_PLAN --> C_SAVE_PLAN --> D_PLANS
     AI_DIGEST --> C_COMPLETE_DIGEST --> D_KNOWLEDGE
     AI_REVIEW --> C_DUE_REVIEWS
     AI_REVIEW --> C_RECORD_REVIEW
+    AI_REVIEW --> C_RESET_REVIEW
     AI_MEMO --> C_ADD_MEMO --> D_MEMOS
     AI_SCHEDULE --> C_AGENDA
     AI_DIGEST --> C_TREE_ROOTS & C_TREE_CHILDREN
@@ -198,6 +206,8 @@ flowchart LR
     R6 --> MASTERED[已掌握]
 
     R1 & R2 & R3 & R4 & R5 & R6 -->|不通过| RETEACH[重新教学<br/>teach.md]
+    RETEACH -->|重教完成| RESET[reset-review<br/>重置计数和learned_at]
+    RESET --> R1
 ```
 
 ## 每日待办聚合
