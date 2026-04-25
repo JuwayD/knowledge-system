@@ -1,5 +1,57 @@
 # 变更记录
 
+## v8.2.0 — 2026-04-22
+
+### 飞书同步完整化 + 查重机制
+
+#### 核心变更
+
+**1. 飞书同步渲染完整元数据**
+
+之前飞书只同步 `content` 字段（`---` 以下的 markdown body），YAML 元数据全部丢失。现在新增 `_render_entry_markdown()` 函数，同步前将所有关键字段渲染成完整的飞书文档：
+- knowledge：标题 + 摘要 + 表格(标签/父节点/前置/关联/学习时间/复习次数/上次复习/来源消化) + 原文
+- plans：标题 + 表格(目标/状态/依据/基础/继续位置) + 单元进度表 + 原文
+- lessons/digests/memos：同理渲染各自字段
+
+**2. 补充所有修改操作的飞书同步触发**
+
+修复 6 个遗漏点，确保任何数据变更都同步到飞书：
+- `complete-lesson` → lesson 同步 + 关联 plan 同步
+- `complete-digest` → digest 同步 + 关联 plan 同步
+- `record-review` / `reset-review` → knowledge 同步
+- `update-plan-status` / `set-resume` / `update-units` / `record-progress` / `upsert-progress` → plan 同步
+
+**3. 飞书优先防重复机制**
+
+重构 `_sync_entry()`：
+- 本地映射未命中时，先搜索飞书已有文档
+- 内容相似度 ≥ 30%（Jaccard）→ MERGED（更新现有文档）
+- 内容相似度 < 30% → CREATED (duplicate name)（创建新文档 + 备注与 xxx 主题不同）
+- 无候选文档 → 正常创建
+
+**4. 新增查重命令（AI 主动查重）**
+
+- `check-duplicate --topic "xxx" --kind knowledge`：查本地 + 飞书是否已有同名/相似文档，返回 recommendation（create/update/review/pull_and_update）
+- `list-active-plans`：列出所有 `status=active` 的学习计划
+- `list-recent-lessons --topic "xxx" --days 30`：查最近 N 天内是否教过某主题
+
+**5. SKILL.md 约束更新**
+
+删除代码层强制拦截，改为 AI 行为约束：
+- 创建任何内容前 → 先 `check-duplicate`
+- 用户想学习新主题 → 先 `list-active-plans` 看是否已有进行中的 plan
+- 开始教学前 → 先 `list-recent-lessons` 看最近是否教过
+
+#### 文件变更清单
+
+| 文件 | 变更 |
+|---|---|
+| `feishu.py` | 新增 `_render_entry_markdown()`、`_search_feishu_by_topic()`、`_content_similarity()`、`_merge_content()`；重构 `_sync_entry()` 支持飞书优先查重 |
+| `kb.py` | 补充 6 个遗漏的 `_try_feishu_sync` 触发点；新增 `check-duplicate`、`list-active-plans`、`list-recent-lessons` 命令 |
+| `SKILL.md` | 更新查重约束为 AI 主动行为；新增三个查重命令的 CLI 引用 |
+
+---
+
 ## v8.1.0 — 2026-04-22
 
 ### 学习生命周期打通
