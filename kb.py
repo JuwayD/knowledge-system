@@ -1,5 +1,5 @@
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import subprocess
@@ -52,6 +52,7 @@ def _try_feishu_sync(entry_id: str, kind: str = "knowledge"):
 def _check_feishu_duplicate(topic: str, kind: str = "knowledge") -> tuple:
     """Check if a document with the same topic already exists in Feishu.
     Returns (exists: bool, node_token: str, doc_id: str, action: str)
+    action: 'update' = exists and should update, 'create' = not found
     """
     if not _check_feishu_sync():
         return (False, "", "", "")
@@ -66,7 +67,6 @@ def _check_feishu_duplicate(topic: str, kind: str = "knowledge") -> tuple:
         output = result.stdout.strip()
         if not output:
             return (False, "", "", "")
-        # Parse dry-run output to find matching topic
         for line in output.split("\n"):
             if topic in line:
                 if "[UPDATE]" in line:
@@ -1505,6 +1505,147 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_duplicate(args: argparse.Namespace) -> int:
+    """Check if a document with the same/similar topic already exists locally and in Feishu."""
+    ensure_data_dirs()
+    topic = args.topic
+    kind = args.kind or "knowledge"
+    kind_dir = {
+        "knowledge": KNOWLEDGE_DIR,
+        "plans": PLANS_DIR,
+        "lessons": LESSONS_DIR,
+        "digests": DIGESTS_DIR,
+        "memos": MEMOS_DIR,
+    }.get(kind, KNOWLEDGE_DIR)
+
+    results = {
+        "topic": topic,
+        "kind": kind,
+        "local_matches": [],
+        "feishu_matches": [],
+        "recommendation": "create",
+        "reason": "",
+    }
+
+    # 1. Check local files
+    for path in sorted(kind_dir.glob("*.md")):
+        data = read_record(path)
+        data_topic = data.get("topic", data.get("title", ""))
+        if data_topic == topic or topic in data_topic or data_topic in topic:
+            results["local_matches"].append({
+                "id": data.get("id", ""),
+                "topic": data_topic,
+                "status": data.get("status", ""),
+                "updated_at": data.get("updated_at", ""),
+            })
+
+    # 2. Check Feishu
+    if _check_feishu_sync():
+        try:
+            feishu_py = str(ROOT_DIR / "feishu.py")
+            feishu_result = subprocess.run(
+                [sys.executable, feishu_py, "sync", "--dry-run", "--kind", kind],
+                capture_output=True,
+                timeout=30,
+                encoding="utf-8",
+            )
+            output = feishu_result.stdout.strip()
+            for line in output.split("\n"):
+                if topic in line:
+                    if "[UPDATE]" in line:
+                        results["feishu_matches"].append({
+                            "status": "exists",
+                            "topic": topic,
+                            "note": "Document exists in Feishu and would be updated",
+                        })
+                    elif "[CREATE]" in line:
+                        results["feishu_matches"].append({
+                            "status": "new",
+                            "topic": topic,
+                            "note": "No matching document in Feishu",
+                        })
+        except Exception:
+            pass
+
+    # 3. Determine recommendation
+    if results["local_matches"]:
+        match = results["local_matches"][0]
+        if match.get("status") == "active":
+            results["recommendation"] = "update"
+            results["reason"] = f"Found active {kind} '{match['topic']}' (id: {match['id']}). Use update-* instead of save-*"
+        elif match.get("status") == "completed":
+            results["recommendation"] = "review"
+            results["reason"] = f"Found completed {kind} '{match['topic']}' (id: {match['id']}). Consider reviewing or creating a new version."
+        else:
+            results["recommendation"] = "update"
+            results["reason"] = f"Found existing {kind} '{match['topic']}' (id: {match['id']}). Use update-* instead of save-*"
+    elif results["feishu_matches"]:
+        fm = results["feishu_matches"][0]
+        if fm["status"] == "exists":
+            results["recommendation"] = "pull_and_update"
+            results["reason"] = "Document exists in Feishu but not locally. Pull first, then update."
+
+    print_json(results)
+    return 0
+
+
+def cmd_list_active_plans(args: argparse.Namespace) -> int:
+    """List all active plans with pending units."""
+    ensure_data_dirs()
+    results = []
+    for path in sorted(PLANS_DIR.glob("*.md")):
+        data = read_record(path)
+        if data.get("status") == "active":
+            units = data.get("units", [])
+            if isinstance(units, str):
+                try:
+                    units = json.loads(units)
+                except (json.JSONDecodeError, TypeError):
+                    units = []
+            pending = [u for u in units if u.get("status") not in ("mastered", "completed")]
+            results.append({
+                "id": data.get("id", ""),
+                "topic": data.get("topic", ""),
+                "goal": data.get("goal", ""),
+                "resume_from": data.get("resume_from", ""),
+                "pending_units": len(pending),
+                "total_units": len(units) if isinstance(units, list) else 0,
+                "updated_at": data.get("updated_at", ""),
+            })
+    print_json(results)
+    return 0
+
+
+def cmd_list_recent_lessons(args: argparse.Namespace) -> int:
+    """List recent lessons for a given topic or all topics."""
+    ensure_data_dirs()
+    topic_filter = args.topic.lower() if args.topic else ""
+    days = args.days or 30
+    cutoff = datetime.now() - timedelta(days=days)
+    results = []
+    for path in sorted(LESSONS_DIR.glob("*.md")):
+        data = read_record(path)
+        lesson_topic = data.get("topic", "").lower()
+        if topic_filter and topic_filter not in lesson_topic:
+            continue
+        try:
+            updated = datetime.fromisoformat(data.get("updated_at", ""))
+            if updated >= cutoff:
+                results.append({
+                    "id": data.get("id", ""),
+                    "topic": data.get("topic", ""),
+                    "plan_id": data.get("plan_id", ""),
+                    "unit": data.get("unit", ""),
+                    "status": data.get("status", ""),
+                    "updated_at": data.get("updated_at", ""),
+                })
+        except (ValueError, TypeError):
+            continue
+    results.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    print_json(results)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="knowledge-system skill-local IO tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -1775,6 +1916,23 @@ def build_parser() -> argparse.ArgumentParser:
     update_memo_parser.add_argument("--content")
     update_memo_parser.add_argument("--stdin", action="store_true")
     update_memo_parser.set_defaults(func=cmd_update_memo)
+
+    check_duplicate_parser = subparsers.add_parser("check-duplicate")
+    check_duplicate_parser.add_argument("--topic", required=True)
+    check_duplicate_parser.add_argument(
+        "--kind",
+        default="knowledge",
+        choices=["plans", "lessons", "digests", "knowledge", "memos"],
+    )
+    check_duplicate_parser.set_defaults(func=cmd_check_duplicate)
+
+    list_active_plans_parser = subparsers.add_parser("list-active-plans")
+    list_active_plans_parser.set_defaults(func=cmd_list_active_plans)
+
+    list_recent_lessons_parser = subparsers.add_parser("list-recent-lessons")
+    list_recent_lessons_parser.add_argument("--topic")
+    list_recent_lessons_parser.add_argument("--days", type=int, default=30)
+    list_recent_lessons_parser.set_defaults(func=cmd_list_recent_lessons)
 
     search_parser = subparsers.add_parser("search")
     search_parser.add_argument(
