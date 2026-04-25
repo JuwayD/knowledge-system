@@ -471,7 +471,7 @@ def _ensure_category_root(config: dict, kind: str) -> str:
 def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
     topic = entry.get("topic", entry.get("title", entry.get("id", "")))
     parent = entry.get("parent", "") if kind == "knowledge" else ""
-    content = entry.get("content", "")
+    content = _render_entry_markdown(entry, kind)
     updated_at = entry.get("updated_at", "")
     entry_id = entry.get("id", "")
     mapping = config.get("node_mapping", {})
@@ -520,6 +520,156 @@ def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
         return f"CREATED -> {node_token}"
     else:
         return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+
+
+def _render_entry_markdown(entry: dict, kind: str) -> str:
+    body = entry.get("content", "")
+    parts = []
+
+    parts.append(f"# {entry.get('topic', entry.get('title', ''))}")
+    parts.append("")
+
+    summary = entry.get("summary", "")
+    if summary:
+        parts.append(f"**摘要**：{summary}")
+        parts.append("")
+
+    if kind == "knowledge":
+        table_rows = []
+        if entry.get("tags"):
+            table_rows.append(("标签", "、".join(entry["tags"]) if isinstance(entry["tags"], list) else str(entry["tags"])))
+        if entry.get("parent"):
+            table_rows.append(("父节点", entry["parent"]))
+        if entry.get("prerequisites"):
+            vals = entry["prerequisites"]
+            table_rows.append(("前置知识", "、".join(vals) if isinstance(vals, list) else str(vals)))
+        if entry.get("related"):
+            vals = entry["related"]
+            table_rows.append(("关联知识", "、".join(vals) if isinstance(vals, list) else str(vals)))
+        if entry.get("learned_at"):
+            table_rows.append(("学习时间", entry["learned_at"]))
+        if entry.get("review_count") is not None:
+            table_rows.append(("复习次数", str(entry.get("review_count", 0))))
+        if entry.get("last_reviewed_at"):
+            table_rows.append(("上次复习", entry["last_reviewed_at"]))
+        if entry.get("source_digest"):
+            table_rows.append(("来源消化", entry["source_digest"]))
+        if table_rows:
+            parts.append("| 字段 | 值 |")
+            parts.append("|---|---|")
+            for k, v in table_rows:
+                parts.append(f"| {k} | {v} |")
+            parts.append("")
+
+    elif kind == "plans":
+        meta_rows = []
+        if entry.get("goal"):
+            meta_rows.append(("目标", entry["goal"]))
+        if entry.get("status"):
+            meta_rows.append(("状态", entry["status"]))
+        if entry.get("basis"):
+            meta_rows.append(("依据", entry["basis"]))
+        if entry.get("baseline"):
+            meta_rows.append(("基础", entry["baseline"]))
+        if entry.get("resume_from"):
+            meta_rows.append(("继续位置", entry["resume_from"]))
+        if meta_rows:
+            parts.append("| 字段 | 值 |")
+            parts.append("|---|---|")
+            for k, v in meta_rows:
+                parts.append(f"| {k} | {v} |")
+            parts.append("")
+
+        units = entry.get("units", [])
+        if isinstance(units, list) and units:
+            parts.append("## 学习单元")
+            parts.append("")
+            parts.append("| 单元 | 目标 | 状态 |")
+            parts.append("|---|---|---|")
+            for u in units:
+                name = u.get("name", "")
+                goal = u.get("goal", "")
+                status = u.get("status", "")
+                parts.append(f"| {name} | {goal} | {status} |")
+            parts.append("")
+
+    elif kind == "lessons":
+        meta_rows = []
+        if entry.get("goal"):
+            meta_rows.append(("目标", entry["goal"]))
+        if entry.get("plan_id"):
+            meta_rows.append(("关联计划", entry["plan_id"]))
+        if entry.get("unit"):
+            meta_rows.append(("单元", entry["unit"]))
+        if entry.get("status"):
+            meta_rows.append(("状态", entry["status"]))
+        if meta_rows:
+            parts.append("| 字段 | 值 |")
+            parts.append("|---|---|")
+            for k, v in meta_rows:
+                parts.append(f"| {k} | {v} |")
+            parts.append("")
+
+        mastered = entry.get("mastered", [])
+        if isinstance(mastered, list) and mastered:
+            parts.append(f"**已掌握**：{'、'.join(mastered)}")
+            parts.append("")
+        weak = entry.get("weak", [])
+        if isinstance(weak, list) and weak:
+            parts.append(f"**薄弱**：{'、'.join(weak)}")
+            parts.append("")
+        nxt = entry.get("next", "")
+        if nxt:
+            parts.append(f"**下次继续**：{nxt}")
+            parts.append("")
+
+    elif kind == "digests":
+        meta_rows = []
+        if entry.get("goal"):
+            meta_rows.append(("目标", entry["goal"]))
+        if entry.get("source_plan"):
+            meta_rows.append(("来源计划", entry["source_plan"]))
+        if entry.get("status"):
+            meta_rows.append(("状态", entry["status"]))
+        if meta_rows:
+            parts.append("| 字段 | 值 |")
+            parts.append("|---|---|")
+            for k, v in meta_rows:
+                parts.append(f"| {k} | {v} |")
+            parts.append("")
+
+        confirmed = entry.get("confirmed", [])
+        if isinstance(confirmed, list) and confirmed:
+            parts.append(f"**已确认**：{'、'.join(confirmed)}")
+            parts.append("")
+        pending = entry.get("pending", [])
+        if isinstance(pending, list) and pending:
+            parts.append(f"**待确认**：{'、'.join(pending)}")
+            parts.append("")
+
+    elif kind == "memos":
+        meta_rows = []
+        if entry.get("type"):
+            meta_rows.append(("类型", entry["type"]))
+        if entry.get("status"):
+            meta_rows.append(("状态", entry["status"]))
+        if entry.get("priority"):
+            meta_rows.append(("优先级", entry["priority"]))
+        if entry.get("deadline"):
+            meta_rows.append(("截止日期", entry["deadline"]))
+        if meta_rows:
+            parts.append("| 字段 | 值 |")
+            parts.append("|---|---|")
+            for k, v in meta_rows:
+                parts.append(f"| {k} | {v} |")
+            parts.append("")
+
+    if body:
+        parts.append("---")
+        parts.append("")
+        parts.append(body)
+
+    return "\n".join(parts)
 
 
 def _now_iso() -> str:
