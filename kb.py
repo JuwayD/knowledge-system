@@ -49,6 +49,35 @@ def _try_feishu_sync(entry_id: str, kind: str = "knowledge"):
         pass
 
 
+def _check_feishu_duplicate(topic: str, kind: str = "knowledge") -> tuple:
+    """Check if a document with the same topic already exists in Feishu.
+    Returns (exists: bool, node_token: str, doc_id: str, action: str)
+    """
+    if not _check_feishu_sync():
+        return (False, "", "", "")
+    try:
+        feishu_py = str(ROOT_DIR / "feishu.py")
+        result = subprocess.run(
+            [sys.executable, feishu_py, "sync", "--dry-run", "--kind", kind],
+            capture_output=True,
+            timeout=30,
+            encoding="utf-8",
+        )
+        output = result.stdout.strip()
+        if not output:
+            return (False, "", "", "")
+        # Parse dry-run output to find matching topic
+        for line in output.split("\n"):
+            if topic in line:
+                if "[UPDATE]" in line:
+                    return (True, "", "", "update")
+                elif "[CREATE]" in line:
+                    return (False, "", "", "create")
+    except Exception:
+        pass
+    return (False, "", "", "")
+
+
 HELP_TEXT = """knowledge-system kb.py
 
 Skill-local data IO tool.

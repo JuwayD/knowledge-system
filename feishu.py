@@ -468,6 +468,23 @@ def _ensure_category_root(config: dict, kind: str) -> str:
     return ""
 
 
+def _search_feishu_by_topic(topic: str, space_id: str) -> list:
+    """Search Feishu wiki nodes by topic title (exact or substring match)."""
+    result = run_lark(
+        "wiki", "nodes", "list",
+        "--params", json.dumps({"space_id": space_id}),
+        "--page-all",
+    )
+    nodes = []
+    if "data" in result and "items" in result["data"]:
+        for node in result["data"]["items"]:
+            title = node.get("title", "")
+            # Exact match or topic is substring of title or title is substring of topic
+            if title == topic or topic in title or title in topic:
+                nodes.append(node)
+    return nodes
+
+
 def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
     topic = entry.get("topic", entry.get("title", entry.get("id", "")))
     parent = entry.get("parent", "") if kind == "knowledge" else ""
@@ -477,8 +494,8 @@ def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
     mapping = config.get("node_mapping", {})
     space_id = config.get("space_id", "")
 
+    # --- Step 1: Check local mapping first (fast path) ---
     map_key = f"{kind}:{entry_id}" if kind != "knowledge" else topic
-
     existing = mapping.get(map_key)
     if existing and existing.get("node_token"):
         synced_at = existing.get("synced_at", "")
@@ -495,6 +512,72 @@ def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
         save_config(config)
         return "UPDATED"
 
+    # --- Step 2: Search Feishu for existing docs with same/similar topic ---
+    candidates = _search_feishu_by_topic(topic, space_id)
+    if candidates:
+        # Use the first exact match, or the first candidate if no exact match
+        exact_matches = [n for n in candidates if n.get("title", "") == topic]
+        chosen = exact_matches[0] if exact_matches else candidates[0]
+        node_token = chosen.get("node_token", "")
+        doc_id = chosen.get("obj_token", "")
+        existing_title = chosen.get("title", "")
+
+        if doc_id:
+            # Fetch existing content from Feishu for comparison
+            fetch_result = run_lark("docs", "+fetch", "--doc", doc_id)
+            existing_content = _extract_markdown(fetch_result)
+
+            # Simple string similarity: check if content overlap > 30%
+            similarity = _content_similarity(content, existing_content)
+
+            if similarity >= 0.3:
+                # Same topic, merge/update existing doc
+                merged_content = _merge_content(existing_content, content, topic)
+                result = _update_doc(doc_id, merged_content, topic)
+                if result.get("ok") is False:
+                    return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+
+                mapping[map_key] = {
+                    "node_token": node_token,
+                    "doc_id": doc_id,
+                    "kind": kind,
+                    "synced_at": updated_at or _now_iso(),
+                }
+                config["node_mapping"] = mapping
+                save_config(config)
+                return f"MERGED -> {node_token}"
+            else:
+                # Same name but different topic, create new with note
+                note = f"\n\n> **Note**: This document has the same name as '[{existing_title}](https://www.feishu.cn/wiki/{node_token})' but covers a different topic.\n"
+                content_with_note = content + note
+
+                parent_node_token = ""
+                if kind == "knowledge" and parent and parent in mapping:
+                    parent_node_token = mapping[parent].get("node_token", "")
+                elif kind != "knowledge":
+                    parent_node_token = _ensure_category_root(config, kind)
+
+                if parent_node_token:
+                    result = _create_child_node(topic, content_with_note, space_id, parent_node_token)
+                else:
+                    result = _create_doc(topic, content_with_note, space_id)
+
+                if result.get("ok"):
+                    new_node_token = result.get("data", {}).get("doc_url", "").split("/")[-1]
+                    new_doc_id = result.get("data", {}).get("doc_id", "")
+                    mapping[map_key] = {
+                        "node_token": new_node_token,
+                        "doc_id": new_doc_id,
+                        "kind": kind,
+                        "synced_at": updated_at or _now_iso(),
+                    }
+                    config["node_mapping"] = mapping
+                    save_config(config)
+                    return f"CREATED (duplicate name, different topic) -> {new_node_token}"
+                else:
+                    return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+
+    # --- Step 3: No existing doc found, create new ---
     parent_node_token = ""
     if kind == "knowledge" and parent and parent in mapping:
         parent_node_token = mapping[parent].get("node_token", "")
@@ -520,6 +603,35 @@ def _sync_entry(entry: dict, config: dict, kind: str = "knowledge") -> str:
         return f"CREATED -> {node_token}"
     else:
         return f"FAILED: {json.dumps(result, ensure_ascii=False)}"
+
+
+def _content_similarity(new_content: str, existing_content: str) -> float:
+    """Calculate simple similarity ratio between two contents."""
+    if not new_content or not existing_content:
+        return 0.0
+    new_lines = set(line.strip() for line in new_content.split("\n") if line.strip())
+    existing_lines = set(line.strip() for line in existing_content.split("\n") if line.strip())
+    if not new_lines or not existing_lines:
+        return 0.0
+    intersection = new_lines & existing_lines
+    union = new_lines | existing_lines
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _merge_content(existing: str, new: str, topic: str) -> str:
+    """Merge new content into existing content intelligently."""
+    if not existing:
+        return new
+    if not new:
+        return existing
+
+    # Check if existing already contains new content
+    if new.strip() in existing:
+        return existing
+
+    # Simple merge: append new content with separator
+    separator = f"\n\n---\n\n**Updated content for {topic}:**\n\n"
+    return existing + separator + new
 
 
 def _render_entry_markdown(entry: dict, kind: str) -> str:
