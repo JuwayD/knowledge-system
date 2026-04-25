@@ -451,6 +451,7 @@ def cmd_update_plan_status(args: argparse.Namespace) -> int:
     data["status"] = args.status
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="plans")
     print_json(data)
     return 0
 
@@ -469,6 +470,7 @@ def cmd_update_units(args: argparse.Namespace) -> int:
     data["units"] = units
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="plans")
     print_json(data)
     return 0
 
@@ -482,6 +484,7 @@ def cmd_set_resume(args: argparse.Namespace) -> int:
     data["resume_from"] = args.resume_from
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="plans")
     print_json(data)
     return 0
 
@@ -514,7 +517,7 @@ def cmd_record_progress(args: argparse.Namespace) -> int:
     _sync_unit_status(data, args.unit, args.status)
     data["updated_at"] = now_iso()
     write_record(path, data)
-    _try_feishu_sync(args.id, kind="plans")
+    _try_feishu_sync(args.plan_id, kind="plans")
     print_json(data)
     return 0
 
@@ -551,6 +554,7 @@ def cmd_upsert_progress(args: argparse.Namespace) -> int:
     _sync_unit_status(data, args.unit, args.status)
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.plan_id, kind="plans")
     print_json(content)
     return 0
 
@@ -678,7 +682,9 @@ def cmd_complete_lesson(args: argparse.Namespace) -> int:
 
             plan_data["updated_at"] = now_iso()
             write_record(plan_path, plan_data)
+            _try_feishu_sync(data["plan_id"], kind="plans")
 
+    _try_feishu_sync(args.id, kind="lessons")
     print_json(data)
     return 0
 
@@ -810,7 +816,9 @@ def cmd_complete_digest(args: argparse.Namespace) -> int:
                 plan_data["resume_from"] = ""
                 plan_data["updated_at"] = now_iso()
                 write_record(plan_path, plan_data)
+                _try_feishu_sync(source_plan, kind="plans")
 
+    _try_feishu_sync(args.id, kind="digests")
     print_json({"digest": data, "knowledge": knowledge_payload})
     return 0
 
@@ -1107,6 +1115,7 @@ def cmd_record_review(args: argparse.Namespace) -> int:
     data["last_reviewed_at"] = now_iso()
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="knowledge")
     print_json(data)
     return 0
 
@@ -1122,6 +1131,7 @@ def cmd_reset_review(args: argparse.Namespace) -> int:
     data["last_reviewed_at"] = ""
     data["updated_at"] = now_iso()
     write_record(path, data)
+    _try_feishu_sync(args.id, kind="knowledge")
     print_json(data)
     return 0
 
